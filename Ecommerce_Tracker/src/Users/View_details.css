@@ -1,0 +1,246 @@
+/* Container */
+.view-details-container {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(120deg, #f8faff 60%, #e8eeff 100%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Main Layout */
+.view-details-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  padding: 3rem 2rem;
+  gap: 3rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Product Gallery */
+.product-gallery {
+  flex: 1 1 350px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 32px rgba(24, 49, 83, 0.1);
+  padding: 2rem;
+  text-align: center;
+}
+
+.main-product-img {
+  width: 100%;
+  max-width: 320px;
+  height: 320px;
+  object-fit: cover;
+  border-radius: 16px;
+  margin-bottom: 1.5rem;
+  transition: transform 0.3s ease;
+}
+
+.main-product-img:hover {
+  transform: scale(1.03);
+}
+
+.product-thumbnails {
+  display: flex;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.product-thumbnails img {
+  width: 70px;
+  height: 70px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  object-fit: cover;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.product-thumbnails img:hover,
+.product-thumbnails img.active-thumb {
+  border-color: #183153;
+  transform: scale(1.05);
+}
+
+/* Product Info */
+.product-info {
+  flex: 1.5 1 400px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 32px rgba(24, 49, 83, 0.1);
+  padding: 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.product-info h2 {
+  font-size: 2.1rem;
+  font-weight: 600;
+  color: #183153;
+}
+
+.product-rating {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  color: #ff9800;
+  font-size: 1.1rem;
+}
+
+.product-rating .in-stock {
+  color: #4caf50;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.product-price {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #183153;
+}
+
+.selectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+}
+
+.selectors label {
+  display: flex;
+  flex-direction: column;
+  color: #183153;
+  font-weight: 500;
+}
+
+.selectors select,
+.selectors input[type="number"] {
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #bdbdbd;
+  font-size: 1rem;
+  margin-top: 0.3rem;
+  transition: all 0.2s;
+}
+
+.selectors select:focus,
+.selectors input:focus {
+  outline: none;
+  border-color: #183153;
+}
+
+/* Add to Cart */
+.add-to-cart-btn {
+  background: #ff9800;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(24, 49, 83, 0.1);
+  transition: all 0.2s;
+}
+
+.add-to-cart-btn:hover {
+  background: #183153;
+}
+
+/* Accordion */
+.product-accordion details {
+  background: #f6f8fa;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  padding: 0.8rem 1.2rem;
+  box-shadow: 0 1px 6px rgba(24, 49, 83, 0.06);
+  transition: background 0.3s;
+}
+
+.product-accordion details[open] {
+  background: #e3eafc;
+}
+
+.product-accordion summary {
+  font-weight: 600;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: #183153;
+}
+
+.product-accordion p,
+.product-accordion ul {
+  margin-top: 0.6rem;
+  color: #333;
+  font-size: 1rem;
+}
+
+.product-accordion ul {
+  padding-left: 1.5rem;
+}
+
+/* Delivery Offers */
+.delivery-offers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin-top: 0.8rem;
+}
+
+.offer-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #183153;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.offer-item svg {
+  color: #ff9800;
+  margin-bottom: 0.3rem;
+}
+
+/* Footer */
+.view-details-footer {
+  background: #183153;
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  padding: 1.2rem;
+  font-size: 1.05rem;
+  margin-top: auto;
+}
+
+.view-details-footer a {
+  color: #fff;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.view-details-footer a:hover {
+  color: #ff9800;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .view-details-main {
+    flex-direction: column;
+    gap: 2rem;
+    padding: 2rem 1rem;
+  }
+
+  .product-gallery,
+  .product-info {
+    width: 100%;
+  }
+
+  .main-product-img {
+    max-width: 100%;
+    height: auto;
+  }
+}
