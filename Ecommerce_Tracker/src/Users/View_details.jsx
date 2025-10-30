@@ -136,5 +136,4 @@ function View_details() {
     </div>
   );
 }
-
 export default View_details;
