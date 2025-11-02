@@ -73,7 +73,7 @@ const ProductDetailPage = () => {
             <span className="product-brand">{product.brand}</span>
             <h1 className="product-name">{product.name}</h1>
             <p className="product-category">{product.category}</p>
-            <div className="product-price">${product.price.toFixed(2)}</div>
+            <div className="product-price">₹{product.price.toFixed(2)}</div>
           </div>
 
           <div className="benefits-section">

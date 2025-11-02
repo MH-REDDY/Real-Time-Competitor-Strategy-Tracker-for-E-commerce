@@ -26,44 +26,47 @@ const BrowseEventsPage = () => {
         <p className="browse-subtitle">Discover our premium collection of audio products</p>
       </div>
 
-      <div className="browse-container">
-        <div className="filters-section">
-          <div className="search-box">
-            <Search size={20} />
-            <input
-              type="text"
-              placeholder="Search products..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+      <div className="filters-bar">
+        <div className="search-box">
+          <Search size={20} />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
 
-          <div className="category-filters">
-            <div className="filter-header">
-              <Filter size={20} />
-              <h3>Categories</h3>
-            </div>
-            <div className="category-list">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
-                  onClick={() => setSelectedCategory(category)}
-                >
-                  {category === 'all' ? 'All Products' : category}
-                </button>
-              ))}
-            </div>
+        <div className="category-filters">
+          <div className="filter-header">
+            <Filter size={20} />
+            <span>Categories:</span>
+          </div>
+          <div className="category-list">
+            {categories.map((category) => (
+              <button
+                key={category}
+                className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(category)}
+              >
+                {category === 'all' ? 'All Products' : category}
+              </button>
+            ))}
           </div>
         </div>
+      </div>
+
+      <div className="browse-container">
 
         <div className="products-section">
           <div className="results-info">
-            <p>{filteredProducts.length} products found</p>
+            <p><span className="results-count">{filteredProducts.length}</span> products found</p>
           </div>
           <div className="products-grid">
             {filteredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} showQuantity={true} />
+              <div className="product-card-wrapper" key={product.id}>
+                <ProductCard product={product} showQuantity={true} />
+              </div>
             ))}
           </div>
           {filteredProducts.length === 0 && (

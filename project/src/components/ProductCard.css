@@ -72,10 +72,11 @@
 }
 
 .product-info {
-  padding: 1.25rem;
+  padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
   flex-grow: 1;
+  gap: 0.5rem;
 }
 
 .product-brand {
@@ -91,12 +92,49 @@
   font-size: 1.1rem;
   font-weight: 600;
   color: #1a1a2e;
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.product-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.product-price {
+  font-size: 1.01rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.add-cart-btn {
+  background: #e94560;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.add-cart-btn:hover {
+  background: #d63d57;
+}
+
+.add-cart-btn svg {
+  flex-shrink: 0;
 }
 
 .product-category {

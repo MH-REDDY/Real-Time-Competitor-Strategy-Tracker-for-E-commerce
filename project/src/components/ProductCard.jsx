@@ -42,7 +42,7 @@ const ProductCard = ({ product, showQuantity = false }) => {
         <h3 className="product-name">{product.name}</h3>
         <p className="product-category">{product.category}</p>
         <div className="product-footer">
-          <span className="product-price">${product.price.toFixed(2)}</span>
+          <span className="product-price">₹{product.price.toFixed(2)}</span>
           {showQuantity && (
             <button className="add-cart-btn" onClick={handleAddToCart}>
               <ShoppingCart size={18} />

@@ -65,8 +65,8 @@ const CartPage = () => {
                   </button>
                 </div>
                 <div className="item-price">
-                  <p className="price">${(item.price * item.quantity).toFixed(2)}</p>
-                  <p className="unit-price">${item.price.toFixed(2)} each</p>
+                  <p className="price">₹{(item.price * item.quantity).toFixed(2)}</p>
+                  <p className="unit-price">₹{item.price.toFixed(2)} each</p>
                 </div>
                 <button
                   className="remove-btn"
@@ -84,7 +84,7 @@ const CartPage = () => {
             <div className="summary-details">
               <div className="summary-row">
                 <span>Subtotal</span>
-                <span>${getTotalPrice().toFixed(2)}</span>
+                <span>₹{getTotalPrice().toFixed(2)}</span>
               </div>
               <div className="summary-row">
                 <span>Shipping</span>
@@ -92,12 +92,12 @@ const CartPage = () => {
               </div>
               <div className="summary-row">
                 <span>Tax</span>
-                <span>${(getTotalPrice() * 0.08).toFixed(2)}</span>
+                <span>₹{(getTotalPrice() * 0.08).toFixed(2)}</span>
               </div>
               <div className="summary-divider"></div>
               <div className="summary-row total">
                 <span>Total</span>
-                <span>${(getTotalPrice() * 1.08).toFixed(2)}</span>
+                <span>₹{(getTotalPrice() * 1.08).toFixed(2)}</span>
               </div>
             </div>
             <button className="checkout-btn" onClick={handleCheckout}>
