@@ -44,7 +44,13 @@ const LoginPage = () => {
     }
 
     login({ username: formData.username, name: formData.name }, activeTab);
-    navigate('/');
+    
+    // Redirect based on user type
+    if (activeTab === 'admin') {
+      navigate('/admin');
+    } else {
+      navigate('/');
+    }
   };
 
   const resetForm = () => {
