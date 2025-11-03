@@ -111,10 +111,11 @@ def generate_forecast(brand, model_name, days=30):
     sale_event_encoded = encode_safe(enc_sale, sale_event_value)
 
     price_hist = historical_data['Price'].astype(float)
-    recent_pct_change = price_hist.pct_change().tail(14).mean()
-    if pd.isna(recent_pct_change):
-        recent_pct_change = 0.0
-
+    
+    # Get historical base prices (price before discount)
+    historical_base_prices = historical_data['Price'] / (1 - historical_data['DiscountPercentage'] / 100)
+    avg_base_price = float(historical_base_prices.mean())
+    
     last_price = float(price_hist.iloc[-1])
     last_discount = float(historical_data['DiscountPercentage'].iloc[-1])
 
@@ -186,10 +187,13 @@ def generate_forecast(brand, model_name, days=30):
 
         discount_series.append(pred_discount)
 
-        discount_delta = (pred_discount - last_discount) / 100.0
-        price_trend = recent_pct_change if not pd.isna(recent_pct_change) else 0.0
-        adjusted = last_price * (1.0 + price_trend - 0.2 * discount_delta)
-        last_price = float(max(1.0, adjusted))
+        # Price calculation: base price adjusted by predicted discount
+        # Keep base price stable with small random variations
+        base_price_variation = np.random.uniform(-0.02, 0.02)  # ±2% variation
+        current_base_price = avg_base_price * (1 + base_price_variation)
+        
+        # Apply the predicted discount to get final price
+        last_price = float(current_base_price * (1 - pred_discount / 100))
         last_discount = pred_discount
 
         forecast_data.append({
