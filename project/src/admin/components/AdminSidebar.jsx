@@ -20,6 +20,9 @@ const AdminSidebar = ({ currentView, setCurrentView, onLogout, userName }) => {
         <li onClick={() => setCurrentView('Price Forecast')} style={getNavItemStyle('Price Forecast')}>
           📈 Price Forecast (ML)
         </li>
+        <li onClick={() => setCurrentView('Compare')} style={getNavItemStyle('Compare')}>
+          🔁 Compare (Prices)
+        </li>
         <li onClick={() => setCurrentView('Orders')} style={getNavItemStyle('Orders')}>
           📦 Orders
         </li>

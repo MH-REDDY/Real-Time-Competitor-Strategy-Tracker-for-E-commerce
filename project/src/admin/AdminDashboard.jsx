@@ -5,6 +5,7 @@ import DashboardView from './components/DashboardView';
 import QAAssistantView from './components/QAAssistantView';
 import PriceForecastView from './components/PriceForecastView';
 import ProductsView from './components/ProductsView';
+import CompareView from './components/CompareView';
 import PlaceholderView from './components/PlaceholderView';
 import FloatingBotButton from './components/FloatingBotButton';
 import Modal from './components/Modal';
@@ -23,6 +24,8 @@ const AdminDashboard = ({ onLogout, userName }) => {
         return <PriceForecastView />;
       case 'Products':
         return <ProductsView />;
+      case 'Compare':
+        return <CompareView />;
       case 'Orders':
         return <PlaceholderView title="Orders" subtitle="Orders management placeholder." />;
       case 'Users':

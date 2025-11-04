@@ -34,7 +34,7 @@ const AdminHeader = ({ currentView, setCurrentView, onLogout, userName }) => {
         </div>
 
         <nav style={styles.adminNav}>
-          {['Prices', 'Orders', 'Inventory', 'Users'].map((label) => (
+          {['Prices', 'Compare', 'Orders', 'Inventory', 'Users'].map((label) => (
             <button
               key={label}
               style={{
