@@ -83,6 +83,7 @@
 }
 
 .form-group input[type="text"],
+.form-group input[type="email"],
 .form-group input[type="password"] {
   padding: 0.875rem;
   border: 2px solid #e8e8e8;
@@ -92,6 +93,7 @@
 }
 
 .form-group input[type="text"]:focus,
+.form-group input[type="email"]:focus,
 .form-group input[type="password"]:focus {
   outline: none;
   border-color: #e94560;

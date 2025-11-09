@@ -21,3 +21,45 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Extra sensitive patterns
+.env.*
+*.env
+*.secret
+*.key
+*.pem
+*.crt
+*.der
+
+# Python / backend leakage (in case of mixed code)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments (if created here)
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter checkpoints (if notebooks placed under project)
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Model artifacts (commented: keep tracked for deployment unless you decide to ignore)
+# ../ML model/xgboost_forecast_model/label_encoders.pkl
+# ../ML model/xgboost_forecast_model/xgboost_model_real_data.json
+# ../ML model/xgboost_forecast_model/feature_columns.json
+# ../ML model/xgboost_forecast_model/model_metadata.json
+
+# Local data dumps
+data_dump*/
+*.bson
+*.archive
+*.dump
+
+# Backups & temp
+*.bak
+*.old
+*.orig
+*.tmp

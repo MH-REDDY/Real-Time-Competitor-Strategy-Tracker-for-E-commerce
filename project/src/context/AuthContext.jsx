@@ -1,6 +1,8 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
+
+const API_URL = 'http://localhost:8001'; // Unified backend API
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -11,24 +13,44 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userType, setUserType] = useState(null);
-  const [user, setUser] = useState(null);
+  // Simplified (auth temporarily disabled)
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [userType, setUserType] = useState('admin');
+  const [user, setUser] = useState({ username: 'demo', role: 'admin' });
+  const [token, setToken] = useState('dev-token');
+  const [loading, setLoading] = useState(false);
 
-  const login = (userData, type) => {
-    setIsAuthenticated(true);
-    setUserType(type);
-    setUser(userData);
-  };
+  // Check for existing token on mount
+  useEffect(() => {
+    // No-op: auth disabled; preload demo user
+  }, []);
+
+  const login = async () => ({ success: true, role: 'admin' });
+
+  const register = async () => ({ success: true });
 
   const logout = () => {
-    setIsAuthenticated(false);
-    setUserType(null);
-    setUser(null);
+    // Reset to demo user instead of full unauthenticated state
+    setIsAuthenticated(true);
+    setUserType('admin');
+    setUser({ username: 'demo', role: 'admin' });
+    setToken('dev-token');
   };
 
+  const getAuthHeader = () => ({ });
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, userType, user, login, logout }}>
+    <AuthContext.Provider value={{ 
+      isAuthenticated, 
+      userType, 
+      user, 
+      token,
+      loading,
+      login, 
+      register,
+      logout,
+      getAuthHeader
+    }}>
       {children}
     </AuthContext.Provider>
   );

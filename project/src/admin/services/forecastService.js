@@ -1,23 +1,61 @@
-// Real Forecast Service using XGBoost ML Model
-// This connects to the FastAPI backend that runs the trained XGBoost model
+// Real Forecast Service using backend ML API
+// This connects to the unified FastAPI backend on port 8001
 
-// Real brands and models from expanded_prices_10k.xlsx dataset
-export const brands = [
-  'Bose',
-  'JBL',
-  'OnePlus',
-  'Sennheiser',
-  'Sony',
-  'boAt'
-];
+// API Configuration
+const API_URL = 'http://localhost:5000'; // XGBoost ML server
+const AUTH_URL = 'http://localhost:8001'; // Backend auth server
 
-export const modelsByBrand = {
-  'Bose': ['QuietComfort Ultra'],
-  'JBL': ['Flip 6', 'Go 3'],
-  'OnePlus': ['Buds Z2'],
-  'Sennheiser': ['CX 80S', 'HD 450SE'],
-  'Sony': ['HT-S20R', 'WF-1000XM5', 'WH-CH520'],
-  'boAt': ['Aavante Bar 1160', 'Airdopes 141', 'Rockerz 450']
+// Default brands and models (will be replaced by API data)
+export let brands = [];
+export let modelsByBrand = {};
+export let productDetails = {}; // Store full product details including images
+
+// Initialize brands and models from API
+let initialized = false;
+
+export const initializeBrandsFromAPI = async () => {
+  if (initialized) return;
+  
+  try {
+    const response = await fetch(`${API_URL}/api/brands`);
+    if (!response.ok) throw new Error('Failed to fetch brands');
+    
+    const data = await response.json();
+    brands.length = 0;
+    brands.push(...data.brands);
+    Object.assign(modelsByBrand, data.modelsByBrand);
+    
+    // Fetch product details from forecast API
+    try {
+      const productsResponse = await fetch(`${API_URL}/api/products`);
+      if (productsResponse.ok) {
+        const productsData = await productsResponse.json();
+        // Store product details by title for quick lookup
+        productsData.forEach(product => {
+          const key = product.title;
+          productDetails[key] = {
+            asin: product.asin,
+            image_url: product.image_url,
+            title: product.title,
+            price: product.price,
+            original_price: product.original_price,
+            discount_percent: product.discount_percent,
+            rating: product.rating,
+            availability: product.availability
+          };
+        });
+      }
+    } catch (err) {
+      console.warn('Could not fetch product details:', err);
+    }
+    
+    initialized = true;
+    return { brands, modelsByBrand, productDetails };
+  } catch (error) {
+    console.error('Error fetching brands from API:', error);
+    // Keep empty arrays - will show error in UI
+    return { brands: [], modelsByBrand: {}, productDetails: {} };
+  }
 };
 
 /**
@@ -92,15 +130,15 @@ const generateForecastData = (brand, model, historicalData) => {
 };
 
 /**
- * Main API to get forecast data from XGBoost ML model
+ * Main API to get forecast data from backend ML API
  * @param {string} brand - Selected brand
  * @param {string} model - Selected model
- * @returns {Promise} - Real historical data + ML forecast from XGBoost
+ * @returns {Promise} - Real historical data + ML forecast
  */
 export const getForecastData = async (brand, model) => {
   try {
     // Call the FastAPI backend
-    const response = await fetch('http://localhost:5000/api/forecast', {
+    const response = await fetch(`${API_URL}/api/forecast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -127,7 +165,7 @@ export const getForecastData = async (brand, model) => {
         forecastDays: data.forecast.length,
         lastHistoricalDate: data.historical[data.historical.length - 1]?.date,
         lastForecastDate: data.forecast[data.forecast.length - 1]?.date,
-        source: 'XGBoost ML Model'
+        source: 'Backend ML API'
       }
     };
   } catch (error) {
@@ -135,7 +173,7 @@ export const getForecastData = async (brand, model) => {
     
     // Check if server is running
     if (error.message.includes('Failed to fetch')) {
-      throw new Error('Cannot connect to forecast server. Make sure the API server is running at http://localhost:5000');
+      throw new Error('Cannot connect to backend server. Make sure the API server is running at http://localhost:8001');
     }
     
     throw error;
@@ -148,7 +186,7 @@ export const getForecastData = async (brand, model) => {
  */
 export const fetchBrandsFromAPI = async () => {
   try {
-    const response = await fetch('http://localhost:5000/api/brands');
+    const response = await fetch(`${API_URL}/api/brands`);
     if (!response.ok) throw new Error('Failed to fetch brands');
     
     const data = await response.json();

@@ -1,0 +1,32 @@
+# Ignore virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python caches
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+logs/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Optional: ignore training artifacts (uncomment if you regenerate locally)
+# label_encoders.pkl
+# xgboost_model_real_data.json
+# feature_columns.json
+# model_metadata.json

@@ -1,16 +1,35 @@
 import { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Brush } from 'recharts';
 import { TrendingUp, Calendar, DollarSign, Tag } from 'lucide-react';
 import { styles } from '../styles/adminStyles';
-import { brands, modelsByBrand, getForecastData } from '../services/forecastService';
+import { brands, modelsByBrand, productDetails, getForecastData, initializeBrandsFromAPI } from '../services/forecastService';
 
 const PriceForecastView = () => {
   const [selectedBrand, setSelectedBrand] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
+  const [availableBrands, setAvailableBrands] = useState([]);
   const [viewMode, setViewMode] = useState('prices'); // 'prices' or 'discounts'
   const [forecastData, setForecastData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [productInfo, setProductInfo] = useState(null);
+
+  // Initialize brands from API on mount
+  useEffect(() => {
+    const loadBrands = async () => {
+      setInitializing(true);
+      try {
+        await initializeBrandsFromAPI();
+        setAvailableBrands([...brands]);
+      } catch (error) {
+        console.error('Failed to load brands:', error);
+      } finally {
+        setInitializing(false);
+      }
+    };
+    loadBrands();
+  }, []);
 
   // Update available models when brand changes
   useEffect(() => {
@@ -18,8 +37,20 @@ const PriceForecastView = () => {
       setAvailableModels(modelsByBrand[selectedBrand] || []);
       setSelectedModel('');
       setForecastData(null);
+      setProductInfo(null);
     }
   }, [selectedBrand]);
+
+  // Update product info when model changes
+  useEffect(() => {
+    if (selectedBrand && selectedModel) {
+      const fullTitle = `${selectedBrand} ${selectedModel}`;
+      const product = Object.values(productDetails).find(p => 
+        p.title.includes(selectedBrand) && p.title.includes(selectedModel)
+      );
+      setProductInfo(product || null);
+    }
+  }, [selectedBrand, selectedModel]);
 
   // Fetch forecast when model is selected
   const handleForecast = async () => {
@@ -70,45 +101,57 @@ const PriceForecastView = () => {
         AI-powered 30-day price and discount predictions using XGBoost ML model
       </p>
 
-      {/* Selection Controls */}
-      <div style={{
-        display: 'flex',
-        gap: '16px',
-        alignItems: 'flex-end',
-        marginTop: '24px',
-        marginBottom: '24px',
-        flexWrap: 'wrap'
-      }}>
-        {/* Brand Dropdown */}
-        <div style={{ flex: '1 1 200px', minWidth: '200px' }}>
-          <label style={{
-            display: 'block',
-            fontSize: '14px',
-            fontWeight: '600',
-            marginBottom: '8px',
-            color: '#2c3e50'
-          }}>
-            Select Brand
-          </label>
-          <select
-            value={selectedBrand}
-            onChange={(e) => setSelectedBrand(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              borderRadius: '6px',
-              border: '1px solid #ced4da',
-              fontSize: '14px',
-              cursor: 'pointer',
-              backgroundColor: 'white'
-            }}
-          >
-            <option value="">Choose a brand...</option>
-            {brands.map(brand => (
-              <option key={brand} value={brand}>{brand}</option>
-            ))}
-          </select>
+      {initializing ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '40px',
+          background: 'white',
+          borderRadius: '12px',
+          marginTop: '24px'
+        }}>
+          <p>Loading products...</p>
         </div>
+      ) : (
+        <>
+          {/* Selection Controls */}
+          <div style={{
+            display: 'flex',
+            gap: '16px',
+            alignItems: 'flex-end',
+            marginTop: '24px',
+            marginBottom: '24px',
+            flexWrap: 'wrap'
+          }}>
+            {/* Brand Dropdown */}
+            <div style={{ flex: '1 1 200px', minWidth: '200px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '600',
+                marginBottom: '8px',
+                color: '#2c3e50'
+              }}>
+                Select Brand
+              </label>
+              <select
+                value={selectedBrand}
+                onChange={(e) => setSelectedBrand(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #ced4da',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="">Choose a brand...</option>
+                {availableBrands.map(brand => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
+              </select>
+            </div>
 
         {/* Model Dropdown */}
         <div style={{ flex: '1 1 250px', minWidth: '250px' }}>
@@ -233,6 +276,72 @@ const PriceForecastView = () => {
           border: '1px solid #e9ecef',
           boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
         }}>
+          {/* Product Info with Image */}
+          {productInfo && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '20px',
+              marginBottom: '24px',
+              padding: '16px',
+              background: '#f8f9fa',
+              borderRadius: '8px',
+              border: '1px solid #e9ecef'
+            }}>
+              {/* Product Image */}
+              <img 
+                src={productInfo.image_url} 
+                alt={productInfo.title}
+                style={{
+                  width: '120px',
+                  height: '120px',
+                  objectFit: 'contain',
+                  borderRadius: '8px',
+                  background: 'white',
+                  padding: '8px',
+                  border: '1px solid #dee2e6'
+                }}
+              />
+              {/* Product Details */}
+              <div style={{ flex: 1 }}>
+                <h3 style={{
+                  margin: '0 0 8px 0',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  color: '#2c3e50'
+                }}>
+                  {productInfo.title}
+                </h3>
+                <div style={{
+                  display: 'flex',
+                  gap: '16px',
+                  flexWrap: 'wrap',
+                  fontSize: '13px',
+                  color: '#6c757d'
+                }}>
+                  <div>
+                    <span style={{ fontWeight: '600' }}>Current Price:</span> ₹{productInfo.price?.toLocaleString()}
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: '600' }}>Original:</span> ₹{productInfo.original_price?.toLocaleString()}
+                  </div>
+                  <div style={{ color: '#10b981', fontWeight: '600' }}>
+                    {productInfo.discount_percent?.toFixed(1)}% OFF
+                  </div>
+                  <div>
+                    <span style={{ fontWeight: '600' }}>Rating:</span> ⭐ {productInfo.rating}
+                  </div>
+                  <div style={{ 
+                    color: productInfo.availability === 'In Stock' ? '#10b981' : '#e94560',
+                    fontWeight: '600'
+                  }}>
+                    {productInfo.availability}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Chart Header */}
           <div style={{
             display: 'flex',
@@ -297,6 +406,8 @@ const PriceForecastView = () => {
                   return `${d.getMonth() + 1}/${d.getDate()}`;
                 }}
               />
+              {/* Enable horizontal navigation over long histories */}
+              <Brush dataKey="date" height={20} stroke="#adb5bd" travellerWidth={10} />
               <YAxis
                 tick={{ fontSize: 11 }}
                 label={{
@@ -417,6 +528,8 @@ const PriceForecastView = () => {
             Select a brand and model to generate AI-powered price forecast
           </p>
         </div>
+      )}
+        </>
       )}
     </div>
   );

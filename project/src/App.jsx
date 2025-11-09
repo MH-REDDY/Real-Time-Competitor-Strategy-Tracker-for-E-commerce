@@ -12,28 +12,20 @@ import ProductDetailPage from './pages/ProductDetailPage';
 import CartPage from './pages/CartPage';
 import AdminDashboard from './admin/AdminDashboard';
 
+// Temporary: disable auth gating – always allow access
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  return children;
 };
 
 const AdminRoute = ({ children }) => {
-  const { isAuthenticated, userType, user, logout } = useAuth();
+  // Directly render admin dashboard without auth checks
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" />;
-  }
-  
-  if (userType !== 'admin') {
-    return <Navigate to="/" />;
-  }
-  
   const handleLogout = () => {
+    // Still allow manual logout to clear any local state
     logout();
-    navigate('/login');
+    navigate('/');
   };
-  
   return <AdminDashboard onLogout={handleLogout} userName={user?.username || user?.name || 'Admin'} />;
 };
 
@@ -50,7 +42,8 @@ const AppRoutes = () => {
             : <GuestHomePage />
         } 
       />
-      <Route path="/login" element={<LoginPage />} />
+  {/* Login route kept for future, but app no longer enforces it */}
+  <Route path="/login" element={<LoginPage />} />
       <Route
         path="/admin"
         element={<AdminRoute />}

@@ -13,7 +13,9 @@ const LoginPage = () => {
     password: '',
     termsAccepted: false
   });
-  const { login } = useAuth();
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { login, register } = useAuth();
   const navigate = useNavigate();
 
   const handleInputChange = (e) => {
@@ -22,34 +24,87 @@ const LoginPage = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    setError(''); // Clear error on input change
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    setLoading(true);
 
-    if (activeTab === 'user' && isSignup) {
-      if (!formData.name || !formData.username || !formData.password) {
-        alert('Please fill in all fields');
-        return;
-      }
-      if (!formData.termsAccepted) {
-        alert('Please accept the terms and conditions');
-        return;
-      }
-    } else {
-      if (!formData.username || !formData.password) {
-        alert('Please fill in all fields');
-        return;
-      }
-    }
+    try {
+      if (activeTab === 'user' && isSignup) {
+        // User Signup
+        if (!formData.name || !formData.username || !formData.password) {
+          setError('Please fill in all fields');
+          setLoading(false);
+          return;
+        }
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.username)) {
+          setError('Please enter a valid email address (e.g., user@example.com)');
+          setLoading(false);
+          return;
+        }
+        if (!formData.termsAccepted) {
+          setError('Please accept the terms and conditions');
+          setLoading(false);
+          return;
+        }
 
-    login({ username: formData.username, name: formData.name }, activeTab);
-    
-    // Redirect based on user type
-    if (activeTab === 'admin') {
-      navigate('/admin');
-    } else {
-      navigate('/');
+        const result = await register({
+          name: formData.name,
+          username: formData.username,
+          password: formData.password
+        });
+
+        if (result.success) {
+          alert('Account created successfully! Please login with your email and password.');
+          setIsSignup(false);
+          resetForm();
+        } else {
+          setError(result.error || 'Unable to create account. Please try again.');
+        }
+      } else {
+        // Login (both admin and user)
+        if (!formData.username || !formData.password) {
+          setError('Please fill in all fields');
+          setLoading(false);
+          return;
+        }
+        
+        // Email validation for user login
+        if (activeTab === 'user') {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(formData.username)) {
+            setError('Please enter a valid email address');
+            setLoading(false);
+            return;
+          }
+        }
+
+        const result = await login({
+          username: formData.username,
+          password: formData.password
+        }, activeTab);
+
+        if (result.success) {
+          // Redirect based on user type
+          if (result.role === 'admin') {
+            navigate('/admin');
+          } else {
+            navigate('/');
+          }
+        } else {
+          setError(result.error || 'Unable to login. Please check your email and password.');
+        }
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again or contact support.');
+      console.error('Form submission error:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -92,6 +147,20 @@ const LoginPage = () => {
           </div>
 
           <form className="login-form" onSubmit={handleSubmit}>
+            {error && (
+              <div className="error-message" style={{
+                padding: '12px',
+                marginBottom: '16px',
+                backgroundColor: '#fee',
+                border: '1px solid #fcc',
+                borderRadius: '6px',
+                color: '#c33',
+                fontSize: '14px'
+              }}>
+                {error}
+              </div>
+            )}
+
             {activeTab === 'user' && isSignup && (
               <div className="form-group">
                 <label htmlFor="name">Full Name</label>
@@ -107,14 +176,16 @@ const LoginPage = () => {
             )}
 
             <div className="form-group">
-              <label htmlFor="username">Username</label>
+              <label htmlFor="username">
+                {activeTab === 'user' ? 'Email Address' : 'Username'}
+              </label>
               <input
-                type="text"
+                type={activeTab === 'user' ? 'email' : 'text'}
                 id="username"
                 name="username"
                 value={formData.username}
                 onChange={handleInputChange}
-                placeholder="Enter your username"
+                placeholder={activeTab === 'user' ? 'Enter your email' : 'Enter your username'}
               />
             </div>
 
@@ -144,8 +215,8 @@ const LoginPage = () => {
               </div>
             )}
 
-            <button type="submit" className="submit-btn">
-              {isSignup ? 'Create Account' : 'Login'}
+            <button type="submit" className="submit-btn" disabled={loading}>
+              {loading ? 'Please wait...' : (isSignup ? 'Create Account' : 'Login')}
             </button>
 
             {activeTab === 'user' && (

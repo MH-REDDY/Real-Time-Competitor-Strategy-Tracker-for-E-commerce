@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { styles } from '../styles/adminStyles';
 
+// Prefer environment variable for backend URL; fallback to common ports.
+// You can set VITE_BACKEND_URL in project/.env (e.g., http://localhost:8000 or :8001)
+const API_URL = (typeof import.meta !== 'undefined' && import.meta.env.VITE_BACKEND_URL)
+  || 'http://localhost:8000'; // fallback: current running port
+
 const formatDate = (d) => {
   if (!d) return '-';
   try {
@@ -29,7 +34,7 @@ const CompareView = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/compare');
+      const res = await fetch(`${API_URL}/api/compare`);
       if (!res.ok) throw new Error('Failed to load');
       const data = await res.json();
       setRows(data || []);
@@ -48,45 +53,46 @@ const CompareView = () => {
   const doRefresh = async () => {
     setRefreshing(true);
     try {
-  const headers = {};
-  if (CLIENT_API_KEY) headers['x-api-key'] = CLIENT_API_KEY;
-    const res = await fetch('/api/scrape', { method: 'POST', headers });
-      let jobId = null;
-      if (res.status === 409) {
-        // another job is already running — extract job id from detail and poll it
-        const txt = await res.text();
-        const m = txt.match(/job_id=([a-f0-9\-]+)/i);
-        if (m) jobId = m[1];
-        else {
-          // try parse JSON
-          try {
-            const j = JSON.parse(txt);
-            if (j && j.detail) {
-              const m2 = String(j.detail).match(/job_id=([a-f0-9\-]+)/i);
-              if (m2) jobId = m2[1];
-            }
-          } catch (e) {
-            // fallthrough
-          }
-        }
-        if (!jobId) throw new Error('Another scrape is in progress');
-      } else {
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || 'Scrape failed');
-        }
+      const headers = {};
+      if (CLIENT_API_KEY) headers['x-api-key'] = CLIENT_API_KEY;
+      
+      const res = await fetch(`${API_URL}/api/scrape`, { method: 'POST', headers });
+      
+      if (!res.ok) {
         const json = await res.json();
-        jobId = json.job_id;
+        // Check if this is the "manual scraper" response
+        if (json.status === 'info' && json.message && json.message.includes('manually')) {
+          setToast({ type: 'info', text: 'Note: Scraper is a manual script. Using existing database data.' });
+          await fetchData(); // Refresh with existing data
+          setRefreshing(false);
+          return;
+        }
+        throw new Error(json.message || 'Scrape failed');
       }
-
-      if (!jobId) throw new Error('No job id available');
+      
+      const json = await res.json();
+      
+      // Check if this is the manual scraper info response
+      if (json.status === 'info') {
+        setToast({ type: 'info', text: 'Using existing database data (scraper is manual)' });
+        await fetchData();
+        setRefreshing(false);
+        return;
+      }
+      
+      let jobId = json.job_id || json.jobId;
+      
+      if (!jobId) {
+        throw new Error('No job id available');
+      }
+      
       setCurrentJobId(jobId);
 
       // poll for job status
       let status = 'pending';
       const poll = async () => {
         try {
-          const sres = await fetch(`/api/scrape/status/${jobId}`, { headers });
+          const sres = await fetch(`${API_URL}/api/scrape/status/${jobId}`, { headers });
           if (!sres.ok) throw new Error('Status fetch failed');
           const sjson = await sres.json();
           status = sjson.status;
