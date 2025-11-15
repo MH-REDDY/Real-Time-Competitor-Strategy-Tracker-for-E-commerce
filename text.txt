@@ -19,7 +19,7 @@ git add .
 git commit -m "Reconnecting repo and pushing updates"
 git branch -M main
 git push -u origin main
-c
+
 git commit -m "message"
-git push
-git pull
+git pull origin main
+git push origin main 
