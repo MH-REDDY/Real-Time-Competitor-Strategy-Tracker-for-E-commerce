@@ -12,7 +12,7 @@ import importlib.util
 import uuid
 import threading
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 # Setup logging
@@ -68,7 +68,7 @@ jobs: Dict[str, Dict] = {}
 # On startup, mark any jobs that were running as interrupted (only if we have a database)
 if jobs_col is not None:
     try:
-        jobs_col.update_many({'status': 'running'}, {'$set': {'status': 'interrupted', 'updated_at': datetime.utcnow()}})
+        jobs_col.update_many({'status': 'running'}, {'$set': {'status': 'interrupted', 'updated_at': datetime.now(timezone.utc)}})
     except Exception as e:
         logger.error(f"Failed to update interrupted jobs: {e}")
 
@@ -140,9 +140,9 @@ def _load_scraper_module():
 def _run_scraper_job(job_id: str):
     """Background thread target: runs scraper.run_scraper() and updates job status."""
     # update job status -> running (in-memory and persistent if available)
-    jobs[job_id] = {'status': 'running', 'progress': 0, 'updated_at': datetime.utcnow()}
+    jobs[job_id] = {'status': 'running', 'progress': 0, 'updated_at': datetime.now(timezone.utc)}
     if jobs_col is not None:
-        jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'running', 'progress': 0, 'updated_at': datetime.utcnow()}}, upsert=True)
+        jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'running', 'progress': 0, 'updated_at': datetime.now(timezone.utc)}}, upsert=True)
     try:
         module = _load_scraper_module()
         # If the scraper module exposes a PROGRESS_HOOK, attach one so it can report progress
@@ -151,7 +151,7 @@ def _run_scraper_job(job_id: str):
                 pct = int((processed / total) * 100) if total and total > 0 else None
             except Exception:
                 pct = None
-            update = {'updated_at': datetime.utcnow()}
+            update = {'updated_at': datetime.now(timezone.utc)}
             if pct is not None:
                 update['progress'] = pct
             if last_asin:
@@ -172,11 +172,11 @@ def _run_scraper_job(job_id: str):
             raise RuntimeError('scraper module does not expose run_scraper()')
         module.run_scraper()
         # mark completed
-        jobs[job_id].update({'status': 'completed', 'progress': 100, 'updated_at': datetime.utcnow()})
+        jobs[job_id].update({'status': 'completed', 'progress': 100, 'updated_at': datetime.now(timezone.utc)})
         if jobs_col is not None:
-            jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'completed', 'progress': 100, 'updated_at': datetime.utcnow()}}, upsert=True)
+            jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'completed', 'progress': 100, 'updated_at': datetime.now(timezone.utc)}}, upsert=True)
     except Exception as e:
-        error_info = {'status': 'failed', 'error': str(e), 'updated_at': datetime.utcnow()}
+        error_info = {'status': 'failed', 'error': str(e), 'updated_at': datetime.now(timezone.utc)}
         jobs[job_id].update(error_info)
         if jobs_col is not None:
             jobs_col.update_one({'job_id': job_id}, {'$set': error_info}, upsert=True)
@@ -204,7 +204,7 @@ def start_scrape(request: Request):
 
     job_id = str(uuid.uuid4())
     # persist job with initial progress
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     jobs[job_id] = {'job_id': job_id, 'status': 'pending', 'progress': 0, 'created_at': now, 'updated_at': now}
     if jobs_col is not None:
         jobs_col.insert_one({'job_id': job_id, 'status': 'pending', 'progress': 0, 'created_at': now, 'updated_at': now})
@@ -244,3 +244,9 @@ def scrape_status(job_id: str, request: Request):
                 out[k] = str(v)
     return out
 
+
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info("Starting FastAPI server on http://localhost:8001")
+    uvicorn.run(app, host="0.0.0.0", port=8001)

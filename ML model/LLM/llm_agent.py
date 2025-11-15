@@ -3,6 +3,7 @@ LLM Agent using Groq API with function calling
 """
 import os
 import json
+import re
 from datetime import datetime
 from groq import Groq
 from typing import List, Dict, Optional, AsyncIterator
@@ -229,7 +230,9 @@ class LLMAgent:
 4. **Price Forecasting**: Predict future prices using ML models
 5. **Pricing Recommendations**: Strategic pricing advice based on competition and market trends
 
-    **YOUR PRODUCT CATALOG (ONLY THESE 5 PRODUCTS EXIST):**
+**When user asks "what can you do?" or "help", respond conversationally without calling any functions. Explain your capabilities in a friendly way.**
+
+**YOUR PRODUCT CATALOG (ONLY THESE 5 PRODUCTS EXIST):**
     1. boAt Rockerz 650 Pro (2025 Launch) - ASIN: B0DV5HX4JZ
     2. soundcore by Anker Q20i Wireless Bluetooth Over-Ear Headphones - ASIN: B0C3HCD34R
     3. HP H200 On Ear Wireless Headset, Black - ASIN: B0DHKJ5HWL
@@ -247,10 +250,12 @@ class LLMAgent:
     4. ALWAYS call get_top_rated_products() to show all products; call search_products() only if user mentions specific brand (boAt/Anker/HP/JBL/Amazon Basics)
     5. ALL prices are in Indian Rupees (₹), NEVER use $ (USD)
     6. If a tool returns no data or errors, say so honestly—don't fill in with examples
-    7. After triggering scraper with trigger_scraper(), immediately tell user to wait 5-10 seconds, then call check_scraper_status() to show the updated prices
-    8. We ONLY scrape Amazon India (no Flipkart, no other sites)
-    9. **CRITICAL**: When calling functions, ALWAYS use numeric types (integers, not strings) for numeric parameters like "days" and "limit". For example: days: 30 (correct) NOT days: "30" (wrong)
-    10. **IMPORTANT**: Use the function calling tools provided - do NOT write out function calls as text or XML. The system will execute functions automatically.
+    7. **CRITICAL**: NEVER write function calls as text (like <function>name()</function> or function_name()). The system has automatic function calling - just respond naturally and the system will call functions when needed.
+    8. **CRITICAL**: Do not output XML tags, function syntax, or code in your responses. Only provide natural language answers.
+    9. After triggering scraper with trigger_scraper(), immediately tell user to wait 5-10 seconds, then call check_scraper_status() to show the updated prices
+    10. We ONLY scrape Amazon India (no Flipkart, no other sites)
+    11. **CRITICAL**: When calling functions, ALWAYS use numeric types (integers, not strings) for numeric parameters like "days" and "limit". For example: days: 30 (correct) NOT days: "30" (wrong)
+    12. **IMPORTANT**: The system will execute functions automatically when needed - you should NEVER type out function calls in your responses.
 
 **Scraper Workflow (IMPORTANT):**
 When user requests price scraping:
@@ -267,6 +272,7 @@ When user requests price scraping:
 - When showing products, mention their actual ASIN, title, price (₹), and rating from tools
 - For price trends, explain what the trend means based on returned data
 - Our scraper fetches Amazon India data only
+- If user asks unrelated questions (weather, general knowledge, coding help, etc.), politely redirect: "I specialize in headphone product pricing and competitor analysis. I can help you with product details, price trends, forecasts, or pricing recommendations for our 5 wireless headphones. What would you like to know?"
 
 **Available Actions:**
 - 🔍 Search products
@@ -275,7 +281,7 @@ When user requests price scraping:
 - 🛒 Trigger real-time scraping
 - 💡 Provide pricing recommendations
 
-Always use available tools to fetch real data rather than making assumptions."""
+Always use available tools to fetch real data rather than making assumptions. For unrelated queries, kindly redirect users to your core capabilities."""
     
     async def chat(
         self,
@@ -351,18 +357,25 @@ Always use available tools to fetch real data rather than making assumptions."""
             
             # Detect if query requires product data
             force_tool = None
+            
+            # Check for general capability questions first (these should NOT force tool calling)
+            capability_questions = ["what can you do", "what do you do", "help", "capabilities", "features"]
+            is_capability_question = any(q in query_lower for q in capability_questions)
+            
+            # Product data keywords
             product_keywords = [
-                "product", "price", "latest", "show", "list", "get all", "all products",
-                "top rated", "best", "trend", "price trend", "analyze trend"
+                "show products", "list products", "all products", "get products",
+                "top rated", "best products", "highest rated"
             ]
             
-            if any(keyword in query_lower for keyword in product_keywords):
+            # Only force tool calling for specific product data requests, not general questions
+            if not is_capability_question and any(keyword in query_lower for keyword in product_keywords):
                 # Force tool calling for product queries
-                if "top" in query_lower or "best" in query_lower or "rated" in query_lower:
+                if "top" in query_lower or "best" in query_lower or "rated" in query_lower or "what are" in query_lower:
                     force_tool = {"type": "function", "function": {"name": "get_top_rated_products"}}
                 elif "search" in query_lower and any(brand in query_lower for brand in ["boat", "anker", "hp", "jbl", "amazon"]):
                     force_tool = {"type": "function", "function": {"name": "search_products"}}
-                elif "trend" in query_lower:
+                elif "trend" in query_lower and "price" in query_lower:
                     force_tool = {"type": "function", "function": {"name": "get_price_trends"}}
                 elif "latest" in query_lower or "all products" in query_lower or "all product" in query_lower:
                     force_tool = {"type": "function", "function": {"name": "get_top_rated_products"}}
@@ -381,7 +394,6 @@ Always use available tools to fetch real data rather than making assumptions."""
                 err_text = str(e)
                 if "rate limit" in err_text.lower() or "rate_limit_exceeded" in err_text.lower():
                     # Parse suggested wait if present
-                    import re
                     wait_minutes = 60
                     m = re.search(r"try again in\s+(\d+)m", err_text)
                     if m:
@@ -403,6 +415,93 @@ Always use available tools to fetch real data rather than making assumptions."""
             
             assistant_message = response.choices[0].message
             print("ASSISTANT MESSAGE:", assistant_message)
+
+            # Fallback: some model generations print function calls as XML-like tags
+            # e.g. <function=get_top_rated_products()></function> or <function>get_top_rated_products()</function>
+            # If Groq didn't return structured tool_calls but the assistant content
+            # contains an inline function tag, parse and execute it as a tool call.
+            if not getattr(assistant_message, "tool_calls", None):
+                content_text = (assistant_message.content or "")
+                # match patterns like: <function>analyze_price_trend({"asin": "B0C3HCD34R"})</function>
+                # or <function=get_top_rated_products()></function>
+                m = re.search(r"<function[=>]?([a-zA-Z0-9_]+)\((.*?)\)</function>", content_text, re.DOTALL)
+                if m:
+                    function_name = m.group(1)
+                    args_raw = m.group(2).strip()
+                    # Try to parse args as JSON-like dict, otherwise assume empty
+                    if args_raw:
+                        try:
+                            # Attempt direct JSON parse
+                            args = json.loads(args_raw)
+                        except Exception:
+                            # Fallback: empty args
+                            args = {}
+                    else:
+                        args = {}
+
+                    # Execute the detected function and continue as if tool_calls were present
+                    try:
+                        result = await self._execute_function(function_name, args)
+                    except Exception as e:
+                        result = {"error": f"Function execution error (fallback): {str(e)}"}
+
+                    # Build function_results and append to messages like normal tool flow
+                    function_results = [
+                        {
+                            "tool_call_id": "fallback-1",
+                            "role": "tool",
+                            "name": function_name,
+                            "content": json.dumps(result, cls=DateTimeEncoder)
+                        }
+                    ]
+
+                    messages.append({
+                        "role": "assistant",
+                        "content": content_text or "",
+                        "tool_calls": [
+                            {
+                                "id": "fallback-1",
+                                "type": "function",
+                                "function": {
+                                    "name": function_name,
+                                    "arguments": json.dumps(args)
+                                }
+                            }
+                        ]
+                    })
+
+                    messages.extend(function_results)
+
+                    # Second pass: generate final response with function results
+                    try:
+                        final_response = groq_client.chat.completions.create(
+                            model=MODEL,
+                            messages=messages,
+                            temperature=TEMPERATURE,
+                            max_tokens=MAX_TOKENS,
+                            stream=stream
+                        )
+                    except Exception as e:
+                        err_text = str(e)
+                        if "rate limit" in err_text.lower() or "rate_limit_exceeded" in err_text.lower():
+                            from datetime import timedelta
+                            self.rate_limit_until = datetime.utcnow() + timedelta(minutes=60)
+                            msg = "The LLM hit a rate limit during response generation. Please retry in a few minutes."
+                            self.memory.add_message(session_id, "assistant", msg)
+                            yield {"response": msg, "session_id": session_id}
+                            return
+                        else:
+                            raise
+
+                    if stream:
+                        async for chunk in self._stream_response(final_response, session_id):
+                            yield chunk
+                    else:
+                        final_text = final_response.choices[0].message.content
+                        self.memory.add_message(session_id, "assistant", final_text)
+                        yield {"response": final_text, "session_id": session_id}
+                    return
+
             # Check for function calls
             if assistant_message.tool_calls:
                 # Execute all function calls
@@ -512,13 +611,26 @@ Always use available tools to fetch real data rather than making assumptions."""
                     yield {"response": response_text, "session_id": session_id}
         
         except Exception as e:
-            error_message = f"Error processing message: {str(e)}"
+            # Provide a friendly error message instead of raw error
+            error_str = str(e)
+            print(f"❌ EXCEPTION CAUGHT: {error_str}")  # Debug logging
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
+            
+            # Check if it's a common error type and provide helpful message
+            if "cannot access local variable" in error_str or "NameError" in error_str:
+                error_message = "I apologize, I encountered a technical issue processing your request. Could you please rephrase your question or try asking something else?"
+            elif "rate limit" in error_str.lower():
+                error_message = "I'm currently experiencing high demand. Please try again in a few moments."
+            else:
+                error_message = "I'm sorry, I couldn't process that request. I specialize in helping with product information, pricing trends, and forecasts for wireless headphones. How can I assist you with that?"
+            
             self.memory.add_message(session_id, "assistant", error_message)
             
             if stream:
                 yield f"data: {json.dumps({'error': error_message})}\n\n"
             else:
-                yield {"error": error_message, "session_id": session_id}
+                yield {"response": error_message, "session_id": session_id}
     
     async def _execute_function(self, function_name: str, args: Dict) -> Dict:
         """Execute a tool function"""

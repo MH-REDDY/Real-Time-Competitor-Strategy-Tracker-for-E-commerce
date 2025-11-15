@@ -84,7 +84,7 @@ function CheckoutPage() {
         if (!validateForm()) return;
 
         try {
-            const res = await fetch("http://localhost:5000/api/create-order", {
+            const res = await fetch("http://localhost:8001/api/create-order", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
@@ -113,7 +113,7 @@ function CheckoutPage() {
         }
 
         const options = {
-            key: "rzp_test_x4UltRWpwOAf5h",
+            key: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_PLACEHOLDER",
             amount: amountInPaise,
             currency: "INR",
             name: "Ignite E-commerce",
@@ -122,7 +122,7 @@ function CheckoutPage() {
             handler: async (response) => {
                 try {
                     // Verify payment on backend
-                    const verifyRes = await fetch("http://localhost:5000/api/verify-payment", {
+                    const verifyRes = await fetch("http://localhost:8001/api/verify-payment", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
