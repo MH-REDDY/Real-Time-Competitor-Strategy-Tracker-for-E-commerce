@@ -12,7 +12,18 @@ const HomePage = () => {
     const load = async () => {
       try {
         const res = await fetch('/api/products');
-        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(`Failed to load products (${res.status})`);
+        }
+        const contentType = res.headers.get('content-type') || '';
+        let data = [];
+        if (contentType.includes('application/json')) {
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = [];
+          }
+        }
         setProducts(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error('Failed to load products', e);

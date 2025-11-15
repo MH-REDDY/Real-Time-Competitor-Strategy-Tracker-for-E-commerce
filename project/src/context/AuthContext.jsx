@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 const AuthContext = createContext();
 
-const API_URL = 'http://localhost:8000'; // Backend API URL
+const API_URL = '';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
