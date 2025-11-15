@@ -505,8 +505,8 @@ const PriceForecastView = () => {
             />
             <StatCard
               icon={<TrendingUp size={20} />}
-              label="Model Accuracy"
-              value="70%"
+              label="R² Score"
+              value="0.9943"
               color="#f59e0b"
             />
           </div>

@@ -13,31 +13,76 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  // Simplified (auth temporarily disabled)
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  const [userType, setUserType] = useState('admin');
-  const [user, setUser] = useState({ username: 'demo', role: 'admin' });
-  const [token, setToken] = useState('dev-token');
+  // Simple routing state (no backend auth, just local state)
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userType, setUserType] = useState(null);
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Check for existing token on mount
+  // Check localStorage on mount to persist login across refreshes
   useEffect(() => {
-    // No-op: auth disabled; preload demo user
+    const savedAuth = localStorage.getItem('isAuthenticated');
+    const savedUserType = localStorage.getItem('userType');
+    const savedUser = localStorage.getItem('user');
+    
+    if (savedAuth === 'true' && savedUserType && savedUser) {
+      setIsAuthenticated(true);
+      setUserType(savedUserType);
+      setUser(JSON.parse(savedUser));
+    }
   }, []);
 
-  const login = async () => ({ success: true, role: 'admin' });
-
-  const register = async () => ({ success: true });
-
-  const logout = () => {
-    // Reset to demo user instead of full unauthenticated state
+  // Simple login - accept any input and set role based on activeTab
+  const login = async (credentials, activeTab = 'user') => {
+    setLoading(true);
+    
+    // Simulate brief delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Role is determined by which tab the user clicked login from
+    const role = activeTab === 'admin' ? 'admin' : 'user';
+    
+    const userData = {
+      username: credentials.username || credentials.email,
+      email: credentials.email || credentials.username,
+      role: role
+    };
+    
     setIsAuthenticated(true);
-    setUserType('admin');
-    setUser({ username: 'demo', role: 'admin' });
-    setToken('dev-token');
+    setUserType(role);
+    setUser(userData);
+    
+    // Persist to localStorage
+    localStorage.setItem('isAuthenticated', 'true');
+    localStorage.setItem('userType', role);
+    localStorage.setItem('user', JSON.stringify(userData));
+    
+    setLoading(false);
+    return { success: true, role: role };
   };
 
-  const getAuthHeader = () => ({ });
+  const register = async (userData) => {
+    setLoading(true);
+    
+    // Simulate brief delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    setLoading(false);
+    return { success: true };
+  };
+
+  const logout = () => {
+    setIsAuthenticated(false);
+    setUserType(null);
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('userType');
+    localStorage.removeItem('user');
+  };
+
+  const getAuthHeader = () => ({});
 
   return (
     <AuthContext.Provider value={{ 

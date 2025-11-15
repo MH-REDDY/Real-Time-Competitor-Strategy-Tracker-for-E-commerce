@@ -5,39 +5,72 @@ import sys
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from bson import ObjectId
 import json
 import importlib.util
 import uuid
 import threading
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime
+import logging
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+# Import payment routes
+try:
+    from payments.payment_routes import router as payment_router
+except ImportError:
+    payment_router = None
+    logger.warning("Payment routes not found")
 
 # Read configuration
 MONGO_URI = os.environ.get('MONGO_URI')
 API_KEY = os.environ.get('API_KEY')  # optional: protect scrape endpoint
 
-if not MONGO_URI:
-    raise RuntimeError('MONGO_URI not set in environment or .env')
+# Try to connect to MongoDB with fallback
+client: Optional[MongoClient] = None
+db = None
+products_col = None
+jobs_col = None
 
-client = MongoClient(MONGO_URI)
-db = client['ecom_tracker']
-products_col = db['products']
+if MONGO_URI:
+    try:
+        logger.info("Attempting to connect to MongoDB Atlas...")
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        # Test the connection
+        client.admin.command('ping')
+        db = client['ecom_tracker']
+        products_col = db['products']
+        jobs_col = db['scrape_jobs']
+        logger.info("✓ Successfully connected to MongoDB Atlas")
+    except (ConnectionFailure, ServerSelectionTimeoutError) as e:
+        logger.warning(f"MongoDB Atlas connection failed: {e}")
+        logger.info("Falling back to local MongoDB...")
+        try:
+            client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=5000)
+            client.admin.command('ping')
+            db = client['ecom_tracker']
+            products_col = db['products']
+            jobs_col = db['scrape_jobs']
+            logger.info("✓ Successfully connected to local MongoDB")
+        except Exception as e2:
+            logger.error(f"Local MongoDB connection also failed: {e2}")
+            logger.warning("⚠ Running without database - using in-memory storage only")
 
-# Simple in-memory job store (job_id -> status/info). For production use a persistent store.
+# Simple in-memory job store (job_id -> status/info)
 jobs: Dict[str, Dict] = {}
-# Persistent jobs collection
-jobs_col = db['scrape_jobs']
 
-# On startup, mark any jobs that were running as interrupted so status is accurate after restarts
-try:
-    jobs_col.update_many({'status': 'running'}, {'$set': {'status': 'interrupted', 'updated_at': datetime.utcnow()}})
-except Exception:
-    # If update fails, continue — we'll handle per-job errors later
-    pass
+# On startup, mark any jobs that were running as interrupted (only if we have a database)
+if jobs_col is not None:
+    try:
+        jobs_col.update_many({'status': 'running'}, {'$set': {'status': 'interrupted', 'updated_at': datetime.utcnow()}})
+    except Exception as e:
+        logger.error(f"Failed to update interrupted jobs: {e}")
 
 app = FastAPI(title='Ecom Tracker API')
 
@@ -48,6 +81,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include payment routes
+if payment_router:
+    app.include_router(payment_router)
 
 
 def _serialize_doc(doc: dict) -> dict:
@@ -68,6 +105,10 @@ def _serialize_doc(doc: dict) -> dict:
 @app.get('/api/compare')
 def get_compare():
     try:
+        if products_col is None:
+            # Return empty list if no database connection
+            logger.warning("No database connection - returning empty product list")
+            return []
         docs = list(products_col.find().sort([('scraped_at', -1)]))
         out = [_serialize_doc(d) for d in docs]
         return out
@@ -98,8 +139,10 @@ def _load_scraper_module():
 
 def _run_scraper_job(job_id: str):
     """Background thread target: runs scraper.run_scraper() and updates job status."""
-    # update persistent job -> running
-    jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'running', 'progress': 0, 'updated_at': datetime.utcnow()}}, upsert=True)
+    # update job status -> running (in-memory and persistent if available)
+    jobs[job_id] = {'status': 'running', 'progress': 0, 'updated_at': datetime.utcnow()}
+    if jobs_col is not None:
+        jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'running', 'progress': 0, 'updated_at': datetime.utcnow()}}, upsert=True)
     try:
         module = _load_scraper_module()
         # If the scraper module exposes a PROGRESS_HOOK, attach one so it can report progress
@@ -113,7 +156,9 @@ def _run_scraper_job(job_id: str):
                 update['progress'] = pct
             if last_asin:
                 update['last_asin'] = last_asin
-            jobs_col.update_one({'job_id': job_id}, {'$set': update}, upsert=True)
+            jobs[job_id].update(update)
+            if jobs_col is not None:
+                jobs_col.update_one({'job_id': job_id}, {'$set': update}, upsert=True)
 
         if hasattr(module, 'PROGRESS_HOOK'):
             try:
@@ -127,9 +172,14 @@ def _run_scraper_job(job_id: str):
             raise RuntimeError('scraper module does not expose run_scraper()')
         module.run_scraper()
         # mark completed
-        jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'completed', 'progress': 100, 'updated_at': datetime.utcnow()}}, upsert=True)
+        jobs[job_id].update({'status': 'completed', 'progress': 100, 'updated_at': datetime.utcnow()})
+        if jobs_col is not None:
+            jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'completed', 'progress': 100, 'updated_at': datetime.utcnow()}}, upsert=True)
     except Exception as e:
-        jobs_col.update_one({'job_id': job_id}, {'$set': {'status': 'failed', 'error': str(e), 'updated_at': datetime.utcnow()}}, upsert=True)
+        error_info = {'status': 'failed', 'error': str(e), 'updated_at': datetime.utcnow()}
+        jobs[job_id].update(error_info)
+        if jobs_col is not None:
+            jobs_col.update_one({'job_id': job_id}, {'$set': error_info}, upsert=True)
 
 
 @app.post('/api/scrape')
@@ -138,15 +188,26 @@ def start_scrape(request: Request):
     Requires API key if configured.
     """
     _require_api_key(request)
-    # Prevent duplicate concurrent scrapes: if a job is already pending/running, return 409 with its id
-    existing = jobs_col.find_one({'status': {'$in': ['pending', 'running']}})
+    # Prevent duplicate concurrent scrapes
+    existing = None
+    if jobs_col is not None:
+        existing = jobs_col.find_one({'status': {'$in': ['pending', 'running']}})
+    else:
+        # Check in-memory jobs
+        for jid, jdata in jobs.items():
+            if jdata.get('status') in ['pending', 'running']:
+                existing = {'job_id': jid}
+                break
+    
     if existing:
         raise HTTPException(status_code=409, detail=f"A scrape is already in progress (job_id={existing.get('job_id')})")
 
     job_id = str(uuid.uuid4())
     # persist job with initial progress
     now = datetime.utcnow()
-    jobs_col.insert_one({'job_id': job_id, 'status': 'pending', 'progress': 0, 'created_at': now, 'updated_at': now})
+    jobs[job_id] = {'job_id': job_id, 'status': 'pending', 'progress': 0, 'created_at': now, 'updated_at': now}
+    if jobs_col is not None:
+        jobs_col.insert_one({'job_id': job_id, 'status': 'pending', 'progress': 0, 'created_at': now, 'updated_at': now})
 
     # start background thread so it survives the request/response cycle
     t = threading.Thread(target=_run_scraper_job, args=(job_id,), daemon=True)
@@ -159,7 +220,13 @@ def start_scrape(request: Request):
 def scrape_status(job_id: str, request: Request):
     """Return status for a given job id. Requires API key if configured."""
     _require_api_key(request)
-    job = jobs_col.find_one({'job_id': job_id})
+    # Try database first, then in-memory
+    job = None
+    if jobs_col is not None:
+        job = jobs_col.find_one({'job_id': job_id})
+    if not job and job_id in jobs:
+        job = jobs[job_id].copy()
+        job['job_id'] = job_id
     if not job:
         raise HTTPException(status_code=404, detail='Job not found')
     # convert ObjectId/datetime to strings where needed

@@ -10,22 +10,33 @@ import LoginPage from './pages/LoginPage';
 import BrowseEventsPage from './pages/BrowseEventsPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import CartPage from './pages/CartPage';
+import CheckoutPage from './payments/CheckoutPage';
 import AdminDashboard from './admin/AdminDashboard';
 
-// Temporary: disable auth gating – always allow access
+// Protected route - redirects to login if not authenticated
 const ProtectedRoute = ({ children }) => {
-  return children;
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
 };
 
+// Admin route - redirects to login if not authenticated or not admin
 const AdminRoute = ({ children }) => {
-  // Directly render admin dashboard without auth checks
-  const { user, logout } = useAuth();
+  const { isAuthenticated, userType, user, logout } = useAuth();
   const navigate = useNavigate();
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (userType !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+  
   const handleLogout = () => {
-    // Still allow manual logout to clear any local state
     logout();
-    navigate('/');
+    navigate('/login');
   };
+  
   return <AdminDashboard onLogout={handleLogout} userName={user?.username || user?.name || 'Admin'} />;
 };
 
@@ -34,20 +45,33 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+      {/* Root redirects to login if not authenticated */}
       <Route 
         path="/" 
         element={
           isAuthenticated 
-            ? (userType === 'admin' ? <Navigate to="/admin" /> : <HomePage />) 
-            : <GuestHomePage />
+            ? (userType === 'admin' ? <Navigate to="/admin" replace /> : <HomePage />) 
+            : <Navigate to="/login" replace />
         } 
       />
-  {/* Login route kept for future, but app no longer enforces it */}
-  <Route path="/login" element={<LoginPage />} />
+      
+      {/* Login page - redirects to dashboard if already logged in */}
+      <Route 
+        path="/login" 
+        element={
+          isAuthenticated 
+            ? (userType === 'admin' ? <Navigate to="/admin" replace /> : <Navigate to="/" replace />) 
+            : <LoginPage />
+        } 
+      />
+      
+      {/* Admin dashboard - protected */}
       <Route
         path="/admin"
         element={<AdminRoute />}
       />
+      
+      {/* User pages - protected */}
       <Route
         path="/browse-events"
         element={
@@ -69,6 +93,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <CartPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/checkout"
+        element={
+          <ProtectedRoute>
+            <CheckoutPage />
           </ProtectedRoute>
         }
       />

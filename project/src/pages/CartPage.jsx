@@ -8,7 +8,7 @@ const CartPage = () => {
   const { cartItems, removeFromCart, updateQuantity, getTotalPrice, getTotalItems } = useCart();
 
   const handleCheckout = () => {
-    alert('Payment functionality will be integrated here. Thank you for shopping with Ignite!');
+    navigate('/checkout');
   };
 
   if (cartItems.length === 0) {
