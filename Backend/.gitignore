@@ -36,6 +36,9 @@ wheels/
 *.crt
 *.der
 
+# Keep an example env template in repo (not secrets!)
+!.env.example
+
 # Virtual environments
 .venv/
 venv/

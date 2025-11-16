@@ -1,0 +1,76 @@
+or xgboost model
+cd "C:\Users\kvpra\OneDrive\Desktop\Infosys\Real-Time-Competitor-Strategy-Tracker-for-E-commerce\ML model\xgboost_forecast_model"; C:\Users\kvpra\anaconda3\Scripts\conda.exe run -p C:\Users\kvpra\OneDrive\Desktop\sample_project_1\myenv1 --no-capture-output python run_api_server.py
+
+for scrapper
+python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
+
+for chatbot
+cd "Real-Time-Competitor-Strategy-Tracker-for-E-commerce\ML model\LLM" ; python chatbot_api.py    
+
+for payment
+python server.py  
+
+
+git init
+git remote add origin https://github.com/MH-REDDY/Real-Time-Competitor-Strategy-Tracker-for-E-commerce.git
+git remote -v
+git pull origin main --allow-unrelated-histories
+git add .
+git commit -m "Reconnecting repo and pushing updates"
+git branch -M main
+git push -u origin main
+
+git add .
+git commit -m "message"
+git pull origin main
+git push origin main 
+ 
+---------------------------------
+Project run commands (Ignite)
+---------------------------------
+
+Backend (FastAPI)
+- CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\Backend
+- Command:
+  python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+Frontend (Vite React)
+- CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\project
+- Command:
+  npm run dev -- --port 5174
+
+Stop servers (Windows)
+- Stop frontend (Vite):
+  taskkill /F /IM node.exe /T
+- Stop backend (FastAPI):
+  taskkill /F /IM python.exe /T
+
+---------------------------------
+Ignite app: Required setup commands
+---------------------------------
+
+Backend (FastAPI in project folder)
+- CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\project
+- One-time setup:
+  python -m venv .venv
+  .venv\Scripts\activate
+  pip install -r requirements.txt
+- Environment (Windows PowerShell):
+  $env:MONGO_URI="<your_mongo_uri>"
+  $env:RAZORPAY_KEY_ID="rzp_test_x4UltRWpwOAf5h"
+  $env:RAZORPAY_KEY_SECRET="KPSF1cqVvwdv6d5nhayl9nYp"
+- Run backend:
+  .venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+Frontend (Vite React in project folder)
+- CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\project
+- One-time setup:
+  npm install
+- Environment (Windows PowerShell):
+  $env:VITE_RAZORPAY_KEY_ID="rzp_test_x4UltRWpwOAf5h"
+- Run frontend:
+  npm run dev
+
+Notes
+- Vite proxy is configured to hit backend http://localhost:8000
+- Payments endpoints are under /api (create-order, verify-payment)

@@ -2,11 +2,12 @@
 Improved ML Forecast routes - fetches real data from MongoDB
 Returns actual prices and product images
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from app.config.database import get_database
+from app.utils.security import get_current_admin, TokenData
 import random
 import logging
 
@@ -44,6 +45,30 @@ class ProductInfo(BaseModel):
     discount_percent: Optional[float] = None
     image_url: Optional[str] = None
     rating: Optional[float] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+    availability: Optional[str] = None
+    reviews_count: Optional[int] = None
+    scraped_at: Optional[str] = None
+
+class ProductCreate(BaseModel):
+    asin: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    discount_percent: Optional[float] = None
+    original_price: Optional[float] = None
+    price: Optional[float] = None
+    rating: Optional[float] = None
+    scraped_at: Optional[str] = Field(default=None, description="ISO datetime string")
+    title: str
+    url: Optional[str] = None
+    availability: Optional[str] = None
+    image_url: Optional[str] = None
+    reviews_count: Optional[int] = None
+
+class ProductUpdate(ProductCreate):
+    pass
 
 @router.get("/products", response_model=List[ProductInfo])
 async def get_products():
@@ -63,7 +88,13 @@ async def get_products():
                 'original_price': 1,
                 'discount_percent': 1,
                 'image_url': 1,
-                'rating': 1
+                'rating': 1,
+                'category': 1,
+                'description': 1,
+                'url': 1,
+                'availability': 1,
+                'reviews_count': 1,
+                'scraped_at': 1,
             }
         ))
         
@@ -92,10 +123,128 @@ async def get_products():
                     product['rating'] = float(product['rating'])
                 except:
                     product['rating'] = None
+            # stringify scraped_at
+            if 'scraped_at' in product and product['scraped_at']:
+                try:
+                    product['scraped_at'] = product['scraped_at'].isoformat()
+                except:
+                    product['scraped_at'] = str(product['scraped_at'])
         
         return products
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
+
+@router.post("/products", response_model=dict)
+async def create_product(payload: ProductCreate, current_admin: TokenData = Depends(get_current_admin)):
+    """Create a new product (Admin only)"""
+    try:
+        db = get_database()
+        products_collection = db['products']
+        # Upsert by asin
+        doc = payload.dict()
+        # Parse scraped_at
+        if doc.get('scraped_at'):
+            try:
+                from datetime import datetime
+                doc['scraped_at'] = datetime.fromisoformat(doc['scraped_at'])
+            except Exception:
+                pass
+        products_collection.update_one({"asin": doc['asin']}, {"$set": doc}, upsert=True)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Create product error: {str(e)}")
+
+@router.get("/products/{asin}", response_model=ProductInfo)
+async def get_product(asin: str):
+    """Get a single product by ASIN"""
+    try:
+        db = get_database()
+        col = db['products']
+        doc = col.find_one({"asin": asin}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Product not found")
+        # Normalize numeric fields and datetime
+        for k in ["price","original_price","discount_percent","rating"]:
+            if k in doc and doc[k] is not None:
+                try:
+                    doc[k] = float(doc[k])
+                except:
+                    pass
+        if 'reviews_count' in doc and doc['reviews_count'] is not None:
+            try:
+                doc['reviews_count'] = int(doc['reviews_count'])
+            except:
+                pass
+        if doc.get('scraped_at'):
+            try:
+                doc['scraped_at'] = doc['scraped_at'].isoformat()
+            except:
+                doc['scraped_at'] = str(doc['scraped_at'])
+        return doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Get product error: {str(e)}")
+
+@router.put("/products/{asin}", response_model=dict)
+async def update_product(asin: str, payload: ProductUpdate, current_admin: TokenData = Depends(get_current_admin)):
+    """Update product by ASIN (Admin only)"""
+    try:
+        db = get_database()
+        products_collection = db['products']
+        doc = payload.dict()
+        if doc.get('scraped_at'):
+            try:
+                from datetime import datetime
+                doc['scraped_at'] = datetime.fromisoformat(doc['scraped_at'])
+            except Exception:
+                pass
+        result = products_collection.update_one({"asin": asin}, {"$set": doc})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update product error: {str(e)}")
+
+@router.delete("/products/{asin}", response_model=dict)
+async def delete_product(asin: str, current_admin: TokenData = Depends(get_current_admin)):
+    """Delete product by ASIN (Admin only)"""
+    try:
+        db = get_database()
+        products_collection = db['products']
+        result = products_collection.delete_one({"asin": asin})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete product error: {str(e)}")
+
+@router.post("/products/import", response_model=dict)
+async def import_products(items: List[ProductCreate], current_admin: TokenData = Depends(get_current_admin)):
+    """Bulk import products (Admin only)"""
+    try:
+        db = get_database()
+        col = db['products']
+        docs = []
+        from datetime import datetime
+        for it in items:
+            d = it.dict()
+            if d.get('scraped_at'):
+                try:
+                    d['scraped_at'] = datetime.fromisoformat(d['scraped_at'])
+                except Exception:
+                    pass
+            docs.append(d)
+        # Upsert each by asin
+        for d in docs:
+            col.update_one({"asin": d['asin']}, {"$set": d}, upsert=True)
+        return {"status": "ok", "count": len(docs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
 
 @router.get("/brands", response_model=BrandsResponse)
 async def get_brands():

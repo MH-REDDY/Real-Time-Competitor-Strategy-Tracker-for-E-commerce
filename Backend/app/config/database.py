@@ -42,10 +42,10 @@ except (ConnectionFailure, ServerSelectionTimeoutError) as e:
         db = None
 
 # Collections (will be None if no database connection)
-admins_collection = db['admins'] if db else None
-users_collection = db['users'] if db else None
-products_collection = db['products'] if db else None
-synthetic_data_collection = db['synthetic_data'] if db else None
+admins_collection = db['admin'] if db is not None else None
+users_collection = db['user'] if db is not None else None
+products_collection = db['products'] if db is not None else None
+synthetic_data_collection = db['synthetic_data'] if db is not None else None
 
 def get_database():
     """Get database instance"""

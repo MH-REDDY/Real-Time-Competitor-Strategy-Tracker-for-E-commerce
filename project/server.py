@@ -12,7 +12,9 @@ import importlib.util
 import uuid
 import threading
 from typing import Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import random
+import math
 import logging
 
 # Setup logging
@@ -37,6 +39,9 @@ client: Optional[MongoClient] = None
 db = None
 products_col = None
 jobs_col = None
+users_col = None
+admins_col = None
+orders_col = None
 
 if MONGO_URI:
     try:
@@ -47,6 +52,9 @@ if MONGO_URI:
         db = client['ecom_tracker']
         products_col = db['products']
         jobs_col = db['scrape_jobs']
+        users_col = db['user']
+        admins_col = db['admin']
+        orders_col = db['orders']
         logger.info("✓ Successfully connected to MongoDB Atlas")
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
         logger.warning(f"MongoDB Atlas connection failed: {e}")
@@ -57,6 +65,9 @@ if MONGO_URI:
             db = client['ecom_tracker']
             products_col = db['products']
             jobs_col = db['scrape_jobs']
+            users_col = db['user']
+            admins_col = db['admin']
+            orders_col = db['orders']
             logger.info("✓ Successfully connected to local MongoDB")
         except Exception as e2:
             logger.error(f"Local MongoDB connection also failed: {e2}")
@@ -112,6 +123,387 @@ def get_compare():
         docs = list(products_col.find().sort([('scraped_at', -1)]))
         out = [_serialize_doc(d) for d in docs]
         return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/brands')
+def get_brands_and_models():
+    """Return available brands and models inferred from products.
+    modelsByBrand keys are brand names; values are model names (derived from product titles).
+    """
+    try:
+        if products_col is None:
+            return {"brands": [], "modelsByBrand": {}}
+        brands_set = set()
+        models_by_brand = {}
+        # Pull latest products
+        docs = list(products_col.find({}, {"brand": 1, "title": 1}).limit(500))
+        for d in docs:
+            title = (d.get('title') or '').strip()
+            brand = (d.get('brand') or '').strip()
+            if not brand and title:
+                # Heuristic: brand as first token
+                brand = title.split()[0]
+            if not brand:
+                continue
+            brands_set.add(brand)
+            # Heuristic for model: title without brand prefix
+            model = title
+            if title.lower().startswith(brand.lower() + ' '):
+                model = title[len(brand):].strip()
+            if model:
+                models_by_brand.setdefault(brand, set()).add(model)
+        # Convert sets to sorted lists and limit for UI brevity
+        brands_list = sorted(brands_set)
+        models_by_brand_out = {
+            b: sorted(list(models_by_brand.get(b, [])))[:50] for b in brands_list
+        }
+        return {"brands": brands_list, "modelsByBrand": models_by_brand_out}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/forecast')
+def forecast(payload: dict):
+    """Return historical and 30-day forecast data for a brand+model.
+    The response shape matches the frontend expectations.
+    """
+    try:
+        brand = (payload or {}).get('brand') or ''
+        model = (payload or {}).get('model') or ''
+        if not brand or not model:
+            raise HTTPException(status_code=400, detail='brand and model are required')
+
+        # Deterministic base using brand+model to keep charts stable
+        base_seed = abs(hash(f"{brand}:{model}")) & 0xFFFFFFFF
+        rng = random.Random(base_seed)
+        base_price = 25000 + rng.random() * 50000  # 25k - 75k
+        base_discount = 5 + rng.random() * 15      # 5% - 20%
+
+        today = datetime.now(timezone.utc).date()
+
+        # Historical: last 60 days
+        historical = []
+        for i in range(60, 0, -1):
+            date_i = (today - timedelta(days=i)).isoformat()
+            seasonal = math.sin(i / 10.0) * 0.15
+            noise = (random.Random(base_seed + i).random() - 0.5) * 0.1
+            price = base_price * (1 + seasonal + noise)
+            disc = max(0.0, base_discount * (1 + seasonal * 1.5 + noise))
+            historical.append({
+                'date': date_i,
+                'price': int(round(price)),
+                'discount': round(disc, 1),
+            })
+
+        # Forecast: next 30 days
+        forecast_out = []
+        last_price = historical[-1]['price']
+        last_disc = historical[-1]['discount']
+        for i in range(1, 31):
+            date_i = (today + timedelta(days=i)).isoformat()
+            trend = 1 + (i * 0.002)
+            seasonal = math.sin(i / 7.0) * 0.05
+            noise = (random.Random(base_seed + 1000 + i).random() - 0.5) * 0.03
+            price = last_price * (trend + seasonal + noise)
+            disc_trend = math.sin(i / 5.0) * 0.2
+            disc = max(0.0, last_disc * (1 + disc_trend + noise * 2))
+            forecast_out.append({
+                'date': date_i,
+                'price': int(round(price)),
+                'discount': round(disc, 1),
+                'isForecast': True,
+            })
+
+        return {
+            'brand': brand,
+            'model': model,
+            'historical': historical,
+            'forecast': forecast_out,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@app.get('/api/products/{item_id}')
+def products_get_one(item_id: str):
+    """Fetch a single product by ASIN or _id."""
+    if products_col is None:
+        raise HTTPException(status_code=404, detail='Database not connected')
+    try:
+        # Try by ASIN first
+        doc = products_col.find_one({'asin': item_id})
+        if not doc:
+            # Try by ObjectId
+            try:
+                doc = products_col.find_one({'_id': ObjectId(item_id)})
+            except Exception:
+                doc = None
+        if not doc:
+            raise HTTPException(status_code=404, detail='Product not found')
+        return _serialize_doc(doc)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -----------------------------
+# Products CRUD (Admin) - Dev
+# -----------------------------
+@app.get('/api/products')
+def products_list():
+    # Alias to compare endpoint for listing
+    return get_compare()
+
+
+@app.post('/api/products')
+def products_create(payload: dict, request: Request):
+    """Create or upsert a product by asin. Requires API key if configured."""
+    _require_api_key(request)
+    if products_col is None:
+        # no DB: accept but no persistence
+        return {'status': 'ok', 'note': 'no database connected'}
+    try:
+        asin = payload.get('asin')
+        if not asin:
+            raise HTTPException(status_code=400, detail='asin is required')
+        payload['updated_at'] = datetime.now(timezone.utc)
+        products_col.update_one({'asin': asin}, {'$set': payload}, upsert=True)
+        return {'status': 'ok'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/api/products/{asin}')
+def products_update(asin: str, payload: dict, request: Request):
+    _require_api_key(request)
+    if products_col is None:
+        return {'status': 'ok', 'note': 'no database connected'}
+    try:
+        payload['updated_at'] = datetime.now(timezone.utc)
+        res = products_col.update_one({'asin': asin}, {'$set': payload}, upsert=False)
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail='Product not found')
+        return {'status': 'ok'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/api/products/{asin}')
+def products_delete(asin: str, request: Request):
+    _require_api_key(request)
+    if products_col is None:
+        return {'status': 'ok', 'note': 'no database connected'}
+    try:
+        res = products_col.delete_one({'asin': asin})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail='Product not found')
+        return {'status': 'ok'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/products/import')
+def products_import(payload: list, request: Request):
+    _require_api_key(request)
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail='Expected a JSON array')
+    if products_col is None:
+        return {'status': 'ok', 'imported': len(payload), 'note': 'no database connected'}
+    try:
+        ops = []
+        for item in payload:
+            asin = item.get('asin')
+            if not asin:
+                # skip items without ASIN
+                continue
+            item['updated_at'] = datetime.now(timezone.utc)
+            ops.append({'update_one': {
+                'filter': {'asin': asin},
+                'update': {'$set': item},
+                'upsert': True
+            }})
+        if ops:
+            # Use bulk_write style via raw command for simplicity
+            products_col.bulk_write([
+                type('X', (), {'_Command': o}) for o in []
+            ])
+            # Fallback simple loop if bulk_write is not convenient
+            for item in payload:
+                asin = item.get('asin')
+                if not asin:
+                    continue
+                products_col.update_one({'asin': asin}, {'$set': item}, upsert=True)
+        return {'status': 'ok', 'imported': len(payload)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------
+# Minimal Auth Endpoints (Dev)
+# -----------------------------
+@app.post('/auth/login')
+def auth_login(payload: dict):
+    try:
+        # Detect admin tab by presence of 'username' (admin form sends username, user form sends email)
+        is_admin_form = 'username' in payload and 'email' not in payload
+        username_input = payload.get('username')
+        email_input = payload.get('email')
+        username = username_input or email_input or 'user@example.com'
+        email = email_input or (username if '@' in (username or '') else f"{username}@example.com")
+        # Derive a friendly display name: use username for admin, or email local-part for users
+        if is_admin_form and username_input:
+            display_name = username_input
+        else:
+            # take part before '@' and title-case it
+            local_part = (email or 'user').split('@')[0]
+            display_name = local_part.replace('.', ' ').replace('_', ' ').title()
+        # Only treat as admin when admin form is used
+        role = 'admin' if is_admin_form else 'user'
+        user_doc = {
+            '_id': str(uuid.uuid4()),
+            'email': email,
+            'full_name': display_name,
+        }
+        # Upsert into users collection if available
+        try:
+            if role == 'admin':
+                if admins_col is not None:
+                    admins_col.update_one(
+                        {'email': email},
+                        {'$set': {
+                            'email': email,
+                            'full_name': display_name,
+                            'role': 'admin',
+                            'is_active': True,
+                            'updated_at': datetime.now(timezone.utc),
+                        }, '$setOnInsert': {
+                            'created_at': datetime.now(timezone.utc)
+                        }},
+                        upsert=True
+                    )
+                    doc = admins_col.find_one({'email': email})
+                    if doc and doc.get('_id'):
+                        user_doc['_id'] = str(doc['_id'])
+            else:
+                if users_col is not None:
+                    users_col.update_one(
+                        {'email': email},
+                        {'$set': {
+                            'email': email,
+                            'full_name': display_name,
+                            'role': 'user',
+                            'is_active': True,
+                            'updated_at': datetime.now(timezone.utc),
+                        }, '$setOnInsert': {
+                            'created_at': datetime.now(timezone.utc)
+                        }},
+                        upsert=True
+                    )
+                    doc = users_col.find_one({'email': email})
+                    if doc and doc.get('_id'):
+                        user_doc['_id'] = str(doc['_id'])
+        except Exception:
+            # non-fatal
+            pass
+        return {
+            'access_token': str(uuid.uuid4()),
+            'token_type': 'bearer',
+            'role': role,
+            'user': user_doc,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post('/auth/register')
+def auth_register(payload: dict):
+    # Accept and return success (no real persistence for this demo)
+    return {'status': 'ok'}
+
+
+@app.get('/auth/me')
+def auth_me(request: Request):
+    # Return a basic user object; in real app this would validate the bearer token
+    return {
+        'user': {
+            '_id': str(uuid.uuid4()),
+            'email': 'user@example.com',
+            'full_name': 'Demo User',
+        },
+        'role': 'user',
+    }
+
+
+# -----------------------------
+# Admin Users Endpoints
+# -----------------------------
+@app.get('/admin/users')
+def admin_users_list():
+    if users_col is None:
+        return []
+    try:
+        docs = list(users_col.find({'role': {'$ne': 'admin'}}).sort([('created_at', -1)]))
+        return [_serialize_doc(d) for d in docs]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch('/admin/users/{user_id}/toggle-active')
+def admin_users_toggle(user_id: str):
+    if users_col is None:
+        return {'status': 'ok', 'note': 'no database connected'}
+    try:
+        # locate by ObjectId if possible, else string id
+        try:
+            q = {'_id': ObjectId(user_id)}
+        except Exception:
+            q = {'_id': user_id}
+        doc = users_col.find_one(q)
+        if not doc:
+            raise HTTPException(status_code=404, detail='User not found')
+        new_status = not bool(doc.get('is_active', True))
+        users_col.update_one(q, {'$set': {'is_active': new_status, 'updated_at': datetime.now(timezone.utc)}})
+        return {'status': 'ok', 'is_active': new_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/admin/users/{user_id}')
+def admin_users_delete(user_id: str):
+    if users_col is None:
+        return {'status': 'ok', 'note': 'no database connected'}
+    try:
+        try:
+            q = {'_id': ObjectId(user_id)}
+        except Exception:
+            q = {'_id': user_id}
+        res = users_col.delete_one(q)
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail='User not found')
+        return {'status': 'ok'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/admin/orders')
+def admin_orders_list():
+    if orders_col is None:
+        return []
+    try:
+        docs = list(orders_col.find().sort([('created_at', -1)]))
+        return [_serialize_doc(d) for d in docs]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

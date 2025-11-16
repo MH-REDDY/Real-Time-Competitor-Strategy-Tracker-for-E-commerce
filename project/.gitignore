@@ -31,6 +31,9 @@ dist-ssr
 *.crt
 *.der
 
+# Keep example env file tracked
+!.env.example
+
 # Python / backend leakage (in case of mixed code)
 __pycache__/
 *.py[cod]

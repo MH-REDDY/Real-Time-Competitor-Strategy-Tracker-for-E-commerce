@@ -13,7 +13,8 @@ class UserCreate(UserBase):
     password: str
     
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
     password: str
     
 class UserResponse(UserBase):
@@ -52,3 +53,4 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
+    username: Optional[str] = None

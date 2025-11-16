@@ -1,12 +1,41 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Tag, TrendingUp, Star } from 'lucide-react';
 import ProductCard from '../components/ProductCard';
-import { products } from '../data/products';
+import { useEffect, useState } from 'react';
 import './GuestHomePage.css';
 
 const GuestHomePage = () => {
   const navigate = useNavigate();
-  const featuredProducts = products.slice(0, 4);
+  const [featuredProducts, setFeaturedProducts] = useState([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fetchProducts = async () => {
+      try {
+        const headers = {};
+        const apiKey = import.meta.env.VITE_API_KEY;
+        if (apiKey) headers['x-api-key'] = apiKey;
+        const res = await fetch('/api/compare', { headers, signal: controller.signal });
+        if (!res.ok) throw new Error(`Failed to load products: ${res.status}`);
+        const data = await res.json();
+        const mapped = (Array.isArray(data) ? data : [])
+          .slice(0, 4)
+          .map((p) => ({
+            id: p.asin || p._id || String(Math.random()),
+            name: p.title || 'Product',
+            brand: p.brand || '',
+            category: p.category || '',
+            price: typeof p.price === 'number' ? p.price : (p.price ? Number(p.price) : 0),
+            image: p.image_url || p.image || '',
+          }));
+        setFeaturedProducts(mapped);
+      } catch (e) {
+        setFeaturedProducts([]);
+      }
+    };
+    fetchProducts();
+    return () => controller.abort();
+  }, []);
 
   const handleBannerClick = () => {
     navigate('/login');

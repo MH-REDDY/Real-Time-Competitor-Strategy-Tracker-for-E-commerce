@@ -58,6 +58,26 @@ build/
 out/
 .next/
 
+# Keys & certificates (safe to ignore across all projects)
+*.key
+*.pem
+*.crt
+*.der
+*.p12
+*.jks
+*.pfx
+
+# Cloud & local credentials
+credentials.json
+google-credentials.json
+aws_credentials
+aws_credentials.*
+
+# Model artifacts and heavy training outputs
+ML model/xgboost_forecast_model/
+.idea/**/credentials
+
+
 # Testing
 .coverage
 htmlcov/
@@ -70,3 +90,29 @@ test-results/
 temp/
 tmp/
 *.tmp
+
+# Sensitive overrides and local environment variants
+# (explicitly ignore common env patterns across all folders)
+project/.env
+Backend/.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.development.local
+.env.production.local
+.env.test.local
+.envrc
+.envrc.local
+
+# Local config containing tokens/creds
+.npmrc
+.pnp.*
+.pypirc
+.python-version
+.python_history
+.mypy_cache/
+.ruff_cache/
+pip-wheel-metadata/
+.vercel/
+.netlify/

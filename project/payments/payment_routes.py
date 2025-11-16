@@ -5,7 +5,7 @@ import razorpay
 import hmac
 import hashlib
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -88,7 +88,8 @@ async def verify_payment(request: VerifyPaymentRequest):
         
         # Payment verified successfully
         # Save order to database
-        order_id = f"ORD{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Use UTC time for stable, standard timestamps
+        order_id = f"ORD{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         
         order_doc = {
             "order_id": order_id,
@@ -101,8 +102,9 @@ async def verify_payment(request: VerifyPaymentRequest):
             "total": request.order_details.get("total", 0),
             "payment_status": "completed",
             "order_status": "processing",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            # Store timezone-aware UTC datetimes
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
         }
         
         if orders_col is not None:

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { styles } from './styles/adminStyles';
 import AdminHeader from './components/AdminHeader';
 import DashboardView from './components/DashboardView';
@@ -7,12 +7,33 @@ import PriceForecastView from './components/PriceForecastView';
 import ProductsView from './components/ProductsView';
 import CompareView from './components/CompareView';
 import PlaceholderView from './components/PlaceholderView';
+import OrdersView from './components/OrdersView';
+import UsersView from './components/UsersView';
 import FloatingBotButton from './components/FloatingBotButton';
 import Modal from './components/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const AdminDashboard = ({ onLogout, userName }) => {
   const [currentView, setCurrentView] = useState('Dashboard');
   const [isQAModalOpen, setIsQAModalOpen] = useState(false);
+  const [profileName, setProfileName] = useState(userName);
+  const { getAuthHeader } = useAuth();
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const res = await fetch('/auth/me', { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && (data.full_name || data.email)) {
+          setProfileName(data.full_name || data.email);
+        }
+      } catch (_) {
+        // ignore
+      }
+    };
+    loadProfile();
+  }, [getAuthHeader]);
 
   const renderContent = () => {
     switch (currentView) {
@@ -27,9 +48,9 @@ const AdminDashboard = ({ onLogout, userName }) => {
       case 'Compare':
         return <CompareView />;
       case 'Orders':
-        return <PlaceholderView title="Orders" subtitle="Orders management placeholder." />;
+        return <OrdersView />;
       case 'Users':
-        return <PlaceholderView title="Users" subtitle="User management placeholder." />;
+        return <UsersView />;
       case 'Settings':
         return <PlaceholderView title="Settings" subtitle="System settings placeholder." />;
       default:
@@ -48,7 +69,7 @@ const AdminDashboard = ({ onLogout, userName }) => {
         currentView={currentView}
         setCurrentView={setCurrentView}
         onLogout={onLogout}
-        userName={userName}
+        userName={profileName}
       />
       <div style={styles.contentArea}>{renderContent()}</div>
 

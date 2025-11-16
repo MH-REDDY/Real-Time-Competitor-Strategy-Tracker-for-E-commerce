@@ -25,14 +25,24 @@ async def login(user_credentials: UserLogin):
     admins_collection = get_admins_collection()
     users_collection = get_users_collection()
     
-    # Check admin collection first
-    user = admins_collection.find_one({"email": user_credentials.email})
-    role = "admin"
-    
-    # If not found in admins, check users collection
-    if not user:
-        user = users_collection.find_one({"email": user_credentials.email})
-        role = "user"
+    # Determine lookup based on provided identifier
+    user = None
+    role = "user"
+
+    # Admins can login via username OR email
+    if user_credentials.username:
+        user = admins_collection.find_one({"username": user_credentials.username})
+        role = "admin" if user else "user"
+
+    # If not found via username, or username not provided, try email
+    if not user and user_credentials.email:
+        # Try admin by email first
+        user = admins_collection.find_one({"email": user_credentials.email})
+        role = "admin" if user else "user"
+        # If still not found, try user by email
+        if not user:
+            user = users_collection.find_one({"email": user_credentials.email})
+            role = "user" if user else role
     
     # User not found in either collection
     if not user:
@@ -42,8 +52,18 @@ async def login(user_credentials: UserLogin):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Verify password
-    if not verify_password(user_credentials.password, user["password"]):
+    # Verify password with safety checks
+    if "password" not in user or not user.get("password"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account misconfigured: missing password"
+        )
+    try:
+        valid_pwd = verify_password(user_credentials.password, user["password"])
+    except Exception:
+        # Unknown hash or invalid stored hash
+        valid_pwd = False
+    if not valid_pwd:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -57,19 +77,26 @@ async def login(user_credentials: UserLogin):
             detail="Account is inactive. Please contact administrator."
         )
     
-    # Create access token
+    # Create access token (include both email and username when available)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    subject = user.get("email") or user.get("username")
     access_token = create_access_token(
-        data={"sub": user["email"], "role": role},
-        expires_delta=access_token_expires
+        data={
+            "sub": subject,
+            "role": role,
+            "email": user.get("email"),
+            "username": user.get("username"),
+        },
+        expires_delta=access_token_expires,
     )
     
     # Prepare user data for response (exclude password)
     user_data = {
         "_id": str(user["_id"]),
-        "email": user["email"],
-        "full_name": user["full_name"],
-        "role": role
+        "email": user.get("email"),
+        "username": user.get("username"),
+        "full_name": user.get("full_name") or user.get("username") or user.get("email"),
+        "role": role,
     }
     
     return {
@@ -127,7 +154,12 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
     
     # Find user in appropriate collection
     if current_user.role == "admin":
-        user = admins_collection.find_one({"email": current_user.email})
+        query = {}
+        if current_user.email:
+            query["email"] = current_user.email
+        elif current_user.username:
+            query["username"] = current_user.username
+        user = admins_collection.find_one(query) if query else None
     else:
         user = users_collection.find_one({"email": current_user.email})
     
@@ -137,13 +169,20 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
             detail="User not found"
         )
     
+    created = user.get("created_at")
+    try:
+        created_str = created.isoformat() if created else None
+    except Exception:
+        created_str = str(created) if created is not None else None
+
     return {
         "_id": str(user["_id"]),
-        "email": user["email"],
-        "full_name": user["full_name"],
+        "email": user.get("email"),
+        "username": user.get("username"),
+        "full_name": user.get("full_name") or user.get("username") or user.get("email"),
         "role": current_user.role,
         "is_active": user.get("is_active", True) if current_user.role == "user" else True,
-        "created_at": user["created_at"]
+        "created_at": created_str,
     }
 
 @router.post("/logout")

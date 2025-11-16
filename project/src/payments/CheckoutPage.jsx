@@ -84,7 +84,7 @@ function CheckoutPage() {
         if (!validateForm()) return;
 
         try {
-            const res = await fetch("http://localhost:8001/api/create-order", {
+            const res = await fetch("/api/create-order", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
@@ -122,7 +122,7 @@ function CheckoutPage() {
             handler: async (response) => {
                 try {
                     // Verify payment on backend
-                    const verifyRes = await fetch("http://localhost:8001/api/verify-payment", {
+                    const verifyRes = await fetch("/api/verify-payment", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({

@@ -45,13 +45,13 @@ const AppRoutes = () => {
 
   return (
     <Routes>
-      {/* Root redirects to login if not authenticated */}
+      {/* Root shows guest homepage if not authenticated */}
       <Route 
         path="/" 
         element={
           isAuthenticated 
             ? (userType === 'admin' ? <Navigate to="/admin" replace /> : <HomePage />) 
-            : <Navigate to="/login" replace />
+            : <GuestHomePage />
         } 
       />
       

@@ -14,6 +14,24 @@ const Header = () => {
     navigate('/');
   };
 
+  const deriveName = (u) => {
+    if (!u) return 'User';
+    if (u.username) return u.username;
+    if (u.full_name) return u.full_name;
+    if (u.email) {
+      const local = String(u.email).split('@')[0] || '';
+      const pretty = local
+        .replace(/[._-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+      return pretty || u.email;
+    }
+    return 'User';
+  };
+
+  const displayName = deriveName(user);
+
   return (
     <header className="header">
       <div className="header-container">
@@ -42,7 +60,7 @@ const Header = () => {
               </Link>
               <div className="user-section">
                 <User size={20} />
-                <span className="user-name">{user?.username}</span>
+                <span className="user-name">{displayName}</span>
               </div>
               <button onClick={handleLogout} className="logout-btn">
                 <LogOut size={20} />

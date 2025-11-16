@@ -16,6 +16,7 @@ def init_database():
         # Create default admin
         admin_data = {
             "email": "admin@ecomtracker.com",
+            "username": "admin",
             "full_name": "Admin User",
             "password": get_password_hash("Admin@123"),
             "role": "admin",
@@ -47,6 +48,7 @@ def init_database():
     
     # Create indexes for better performance
     admins_collection.create_index("email", unique=True)
+    admins_collection.create_index("username", unique=True)
     users_collection.create_index("email", unique=True)
     print("✅ Database indexes created")
 

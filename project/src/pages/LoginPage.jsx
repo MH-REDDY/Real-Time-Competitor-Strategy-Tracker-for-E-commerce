@@ -74,7 +74,7 @@ const LoginPage = () => {
           return;
         }
         
-        // Email validation for user login
+        // Email validation for USER login only
         if (activeTab === 'user') {
           const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           if (!emailRegex.test(formData.username)) {
@@ -177,15 +177,15 @@ const LoginPage = () => {
 
             <div className="form-group">
               <label htmlFor="username">
-                {activeTab === 'user' ? 'Email Address' : 'Username'}
+                {activeTab === 'admin' ? 'Username' : 'Email Address'}
               </label>
               <input
-                type={activeTab === 'user' ? 'email' : 'text'}
+                type={activeTab === 'admin' ? 'text' : 'email'}
                 id="username"
                 name="username"
                 value={formData.username}
                 onChange={handleInputChange}
-                placeholder={activeTab === 'user' ? 'Enter your email' : 'Enter your username'}
+                placeholder={activeTab === 'admin' ? 'Enter your username' : 'Enter your email'}
               />
             </div>
 

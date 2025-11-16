@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, Zap, Truck, Package, Shield, ChevronLeft, ChevronRight } from 'lucide-react';
-import { products } from '../data/products';
 import { useCart } from '../context/CartContext';
 import './ProductDetailPage.css';
 
@@ -12,13 +11,56 @@ const ProductDetailPage = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState('description');
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const product = products.find((p) => p.id === parseInt(id));
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`/api/products/${encodeURIComponent(id)}`);
+        if (!res.ok) throw new Error('Product not found');
+        const p = await res.json();
+        if (cancelled) return;
+        // Normalize to UI shape
+        const normalized = {
+          id: p.asin || p._id || id,
+          asin: p.asin,
+          name: p.title || p.name || 'Product',
+          brand: p.brand || '',
+          category: p.category || '',
+          price: typeof p.price === 'number' ? p.price : (p.price ? Number(p.price) : 0),
+          images: [p.image_url || p.image || 'https://placehold.co/800x600?text=No+Image'],
+          description: p.description || '—',
+          specifications: Array.isArray(p.specifications) ? p.specifications : [],
+          features: Array.isArray(p.features) ? p.features : [],
+        };
+        setProduct(normalized);
+      } catch (e) {
+        setError(e.message || 'Failed to load product');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [id]);
 
-  if (!product) {
+  if (loading) {
     return (
       <div className="product-not-found">
-        <h2>Product not found</h2>
+        <h2>Loading...</h2>
+      </div>
+    );
+  }
+
+  if (!product || error) {
+    return (
+      <div className="product-not-found">
+        <h2>{error || 'Product not found'}</h2>
         <button onClick={() => navigate('/browse-events')}>Back to Browse</button>
       </div>
     );
@@ -73,7 +115,7 @@ const ProductDetailPage = () => {
             <span className="product-brand">{product.brand}</span>
             <h1 className="product-name">{product.name}</h1>
             <p className="product-category">{product.category}</p>
-            <div className="product-price">₹{product.price.toFixed(2)}</div>
+            <div className="product-price">₹{Number(product.price || 0).toFixed(2)}</div>
           </div>
 
           <div className="benefits-section">
@@ -162,7 +204,7 @@ const ProductDetailPage = () => {
             <div className="tab-panel">
               <h3>Technical Specifications</h3>
               <div className="specifications-grid">
-                {product.specifications.map((spec, index) => (
+                {(product.specifications || []).map((spec, index) => (
                   <div key={index} className="spec-item">
                     <span className="spec-label">{spec.label}:</span>
                     <span className="spec-value">{spec.value}</span>
@@ -176,7 +218,7 @@ const ProductDetailPage = () => {
             <div className="tab-panel">
               <h3>Key Features</h3>
               <ul className="features-list">
-                {product.features.map((feature, index) => (
+                {(product.features || []).map((feature, index) => (
                   <li key={index}>{feature}</li>
                 ))}
               </ul>
