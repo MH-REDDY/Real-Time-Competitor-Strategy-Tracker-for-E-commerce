@@ -2,12 +2,14 @@ or xgboost model
 cd "C:\Users\kvpra\OneDrive\Desktop\Infosys\Real-Time-Competitor-Strategy-Tracker-for-E-commerce\ML model\xgboost_forecast_model"; C:\Users\kvpra\anaconda3\Scripts\conda.exe run -p C:\Users\kvpra\OneDrive\Desktop\sample_project_1\myenv1 --no-capture-output python run_api_server.py
 
 for scrapper
+in project folder
 python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
 
 for chatbot
 cd "Real-Time-Competitor-Strategy-Tracker-for-E-commerce\ML model\LLM" ; python chatbot_api.py    
 
 for payment
+in project folder
 python server.py  
 
 
@@ -32,7 +34,7 @@ Project run commands (Ignite)
 Backend (FastAPI)
 - CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\Backend
 - Command:
-  python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+  python -m uvicorn main:app --host 0.0.0.0 --port 8002 --reload
 
 Frontend (Vite React)
 - CWD: d:\Real-Time-Competitor-Strategy-Tracker-for-E-commerce-main\project
