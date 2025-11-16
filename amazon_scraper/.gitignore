@@ -1,0 +1,32 @@
+# Ignore environment files (secrets)
+.env
+.env.*
+*.env
+
+# Python caches and build
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Logs and temp
+*.log
+logs/
+*.tmp
+*.bak
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Jupyter checkpoints (if any notebooks are added)
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/

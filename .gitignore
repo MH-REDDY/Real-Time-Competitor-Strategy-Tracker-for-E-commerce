@@ -1,0 +1,118 @@
+# Environment variables (sensitive credentials)
+.env
+.env.*
+*.env
+!.env.example
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+
+# Keys & certificates (safe to ignore across all projects)
+*.key
+*.pem
+*.crt
+*.der
+*.p12
+*.jks
+*.pfx
+
+# Cloud & local credentials
+credentials.json
+google-credentials.json
+aws_credentials
+aws_credentials.*
+
+# Model artifacts and heavy training outputs
+ML model/xgboost_forecast_model/
+.idea/**/credentials
+
+
+# Testing
+.coverage
+htmlcov/
+coverage/
+.nyc_output/
+test-results/
+
+# Misc
+.cache/
+temp/
+tmp/
+*.tmp
+
+# Sensitive overrides and local environment variants
+# (explicitly ignore common env patterns across all folders)
+project/.env
+Backend/.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.development.local
+.env.production.local
+.env.test.local
+.envrc
+.envrc.local
+
+# Local config containing tokens/creds
+.npmrc
+.pnp.*
+.pypirc
+.python-version
+.python_history
+.mypy_cache/
+.ruff_cache/
+pip-wheel-metadata/
+.vercel/
+.netlify/

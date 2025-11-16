@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.env.local
+
+# Additional sensitive & runtime artifacts
+.env.*
+*.env
+*.secret
+*.key
+*.pem
+*.crt
+*.der
+
+# Keep an example env template in repo (not secrets!)
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+*/.venv/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Model artifacts (uncomment to ignore if regenerated regularly)
+# xgboost_forecast_model/label_encoders.pkl
+# xgboost_forecast_model/xgboost_model_real_data.json
+# xgboost_forecast_model/feature_columns.json
+# xgboost_forecast_model/model_metadata.json
+
+# Local data dumps
+data_dump*/
+*.bson
+*.archive
+*.dump
+
+# Temp & backup
+*.bak
+*.old
+*.orig
+*.tmp
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
