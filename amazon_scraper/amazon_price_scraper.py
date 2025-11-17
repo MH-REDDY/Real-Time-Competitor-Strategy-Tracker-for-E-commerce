@@ -15,7 +15,9 @@ import time
 import random
 import pandas as pd
 from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone
+import uuid
 import concurrent.futures
 import os
 from dotenv import load_dotenv
@@ -56,6 +58,13 @@ try:
     products_col = db["products"]
     price_history_col = db["price_history"]
     reviews_col = db["reviews"] 
+
+    # Ensure a TTL on locks so stale locks are cleared after 1 hour
+    locks_col = db.get_collection('scraper_locks')
+    try:
+        locks_col.create_index([("locked_at", ASCENDING)], expireAfterSeconds=3600)
+    except Exception:
+        logging.debug('Could not create TTL index on scraper_locks (may already exist)')
 
     # Create indexes for all 3 collections
     products_col.create_index([("asin", ASCENDING)], unique=True)
@@ -252,6 +261,7 @@ def main():
     """
     Main function to run the scraper.
     """
+    start_time = datetime.now(timezone.utc)
     product_links = [
         "https://amzn.in/d/am4Rr4C",
         "https://amzn.in/d/9cVbj8s",
@@ -275,11 +285,48 @@ def main():
             try:
                 if product_data:
                     products_scraped_count += 1
-                    products_col.update_one(
-                        {"asin": product_data["asin"]},
-                        {"$set": product_data},
-                        upsert=True
-                    )
+                    # Preserve admin-editable fields if the product already exists.
+                    # Admin-editable fields (should NOT be overwritten by scraper):
+                    admin_editable = {"price", "original_price", "discount_percent", "reviews_count", "rating"}
+
+                    asin = product_data["asin"]
+                    existing = products_col.find_one({"asin": asin})
+
+                    if existing:
+                        # Build a set document for metadata/identifiers only and write scraped numeric values
+                        # into a separate `scraper.last` subdocument so admin-edited top-level fields
+                        # (like `price`) are not overwritten by the scraper.
+                        set_doc = {}
+                        allowed_scraper_fields = ["title", "url", "category", "availability", "image_url"]
+                        for f in allowed_scraper_fields:
+                            if f in product_data:
+                                set_doc[f] = product_data[f]
+
+                        # Always update the scraper subdocument with latest scraped metrics
+                        set_doc["scraper.last"] = {
+                            "price": product_data.get("price"),
+                            "original_price": product_data.get("original_price"),
+                            "discount_percent": product_data.get("discount_percent"),
+                            "rating": product_data.get("rating"),
+                            "reviews_count": product_data.get("reviews_count"),
+                            "scraped_at": product_data.get("scraped_at")
+                        }
+
+                        products_col.update_one({"asin": asin}, {"$set": set_doc}, upsert=False)
+                    else:
+                        # New product - insert full scraped document and mirror scraped metrics
+                        # into `scraper.last` for consistency
+                        to_insert = dict(product_data)
+                        to_insert.setdefault("scraper", {})
+                        to_insert["scraper"]["last"] = {
+                            "price": product_data.get("price"),
+                            "original_price": product_data.get("original_price"),
+                            "discount_percent": product_data.get("discount_percent"),
+                            "rating": product_data.get("rating"),
+                            "reviews_count": product_data.get("reviews_count"),
+                            "scraped_at": product_data.get("scraped_at")
+                        }
+                        products_col.insert_one(to_insert)
                     price_history_to_insert.append({
                         "asin": product_data["asin"],
                         "price": product_data["price"],
@@ -348,6 +395,17 @@ def main():
         print("----------------------------\n")
     else:
         logging.info("No products found in the 'products' collection.")
+    # Compute run summary
+    end_time = datetime.now(timezone.utc)
+    duration_secs = (end_time - start_time).total_seconds()
+    summary = {
+        "products_scraped": products_scraped_count,
+        "price_history_inserted": len(price_history_to_insert),
+        "started_at": start_time,
+        "finished_at": end_time,
+        "duration_seconds": duration_secs
+    }
+    return summary
 
 # This makes the script runnable
 if __name__ == "__main__":
@@ -357,11 +415,54 @@ if __name__ == "__main__":
 def run_scraper():
     """
     Importable wrapper for running the scraper programmatically.
-    Returns a dict with summary information or raises on fatal error.
+    This function acquires a simple MongoDB-backed lock to prevent overlapping
+    runs, records run metadata into `scraper_runs`, and releases the lock when
+    finished. Returns a dict with status information.
     """
+    run_id = str(uuid.uuid4())
+    locks_col = db.get_collection('scraper_locks')
+    runs_col = db.get_collection('scraper_runs')
+    now = datetime.now(timezone.utc)
+
+    # Try to acquire lock by inserting a doc with a well-known _id. If insert
+    # fails with DuplicateKeyError, another run is active.
+    lock_doc = {
+        "_id": "amazon_scraper_lock",
+        "run_id": run_id,
+        "locked_at": now
+    }
     try:
-        main()
-        return {"status": "ok"}
+        locks_col.insert_one(lock_doc)
+    except DuplicateKeyError:
+        logging.info("Another scraper run is active — exiting early.")
+        return {"status": "locked"}
+    except Exception:
+        logging.exception("Failed to create lock document")
+        return {"status": "lock_error"}
+
+    # Record run start
+    runs_col.insert_one({"run_id": run_id, "started_at": now, "status": "running"})
+
+    try:
+        result = main()
+        # If main returned a summary dict, persist useful fields
+        update_fields = {"finished_at": datetime.now(timezone.utc), "status": "success"}
+        if isinstance(result, dict):
+            update_fields.update({
+                "products_scraped": int(result.get("products_scraped", 0)),
+                "price_history_inserted": int(result.get("price_history_inserted", 0)),
+                "duration_seconds": float(result.get("duration_seconds", 0.0)),
+                "started_at": result.get("started_at")
+            })
+
+        runs_col.update_one({"run_id": run_id}, {"$set": update_fields})
+        return {"status": "ok", "run_id": run_id, "summary": result}
     except Exception as e:
         logging.exception(f"Run scraper failed: {e}")
-        raise
+        runs_col.update_one({"run_id": run_id}, {"$set": {"finished_at": datetime.now(timezone.utc), "status": "failed", "error": str(e)}})
+        return {"status": "error", "run_id": run_id, "error": str(e)}
+    finally:
+        try:
+            locks_col.delete_one({"_id": "amazon_scraper_lock", "run_id": run_id})
+        except Exception:
+            logging.exception("Failed to release scraper lock")

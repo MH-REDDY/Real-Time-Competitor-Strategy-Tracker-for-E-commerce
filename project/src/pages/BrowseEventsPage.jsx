@@ -24,7 +24,7 @@ const BrowseEventsPage = () => {
         const headers = {};
         const apiKey = import.meta.env.VITE_API_KEY;
         if (apiKey) headers['x-api-key'] = apiKey;
-        const res = await fetch('/api/compare', { headers, signal: controller.signal });
+        const res = await fetch('/api/products', { headers, signal: controller.signal });
         if (!res.ok) throw new Error('Failed to load products');
         const data = await res.json();
         setRows(Array.isArray(data) ? data : []);

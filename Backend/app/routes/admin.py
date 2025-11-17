@@ -1,7 +1,11 @@
 """
 Admin-only routes
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+import logging
+import sys
+import os
+import importlib
 from typing import List
 from app.models.user import UserResponse, TokenData
 from app.config.database import get_users_collection
@@ -119,3 +123,39 @@ async def get_admin_stats(current_admin: TokenData = Depends(get_current_admin))
         "active_users": active_users,
         "inactive_users": inactive_users
     }
+
+
+@router.post("/scrape")
+async def trigger_scrape(background_tasks: BackgroundTasks, current_admin: TokenData = Depends(get_current_admin)):
+    """
+    Admin-only endpoint to trigger the scraper. Runs the scraper in the background so the
+    request returns immediately. The scraper module is imported dynamically from the
+    repository `amazon_scraper` folder to avoid import-time failures when running in other
+    environments.
+    """
+    # Dynamically add the project root -> amazon_scraper to sys.path and import
+    try:
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        scraper_dir = os.path.join(base, 'amazon_scraper')
+        if scraper_dir not in sys.path:
+            sys.path.insert(0, scraper_dir)
+
+        scraper_mod = importlib.import_module('amazon_price_scraper')
+        run_scraper_fn = getattr(scraper_mod, 'run_scraper', None)
+        if not callable(run_scraper_fn):
+            logging.error('Scraper run_scraper function not found')
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Scraper callable not found')
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception('Failed to import scraper module')
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Failed to load scraper module')
+
+    def _run():
+        try:
+            run_scraper_fn()
+        except Exception:
+            logging.exception('Admin-triggered scraper failed')
+
+    background_tasks.add_task(_run)
+    return {"message": "Scraper started in background"}

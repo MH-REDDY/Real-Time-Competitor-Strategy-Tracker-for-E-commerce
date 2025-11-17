@@ -183,8 +183,8 @@ export const styles = {
     background: 'linear-gradient(135deg, #e94560 0%, #ff6b6b 100%)',
     color: 'white',
     border: 'none',
-    boxShadow: '0 4px 12px rgba(233, 69, 96, 0.3)',
-    padding: '10px 18px',
+    boxShadow: '0 4px 10px rgba(233, 69, 96, 0.10)',
+    padding: '8px 16px',
     fontSize: '13px',
     fontWeight: 600,
     letterSpacing: '.3px',
@@ -272,6 +272,7 @@ export const styles = {
     padding: '12px 15px',
     fontSize: '14px',
     color: '#343a40',
+    verticalAlign: 'middle',
   },
   tableImage: {
     width: '40px',
@@ -285,11 +286,17 @@ export const styles = {
     gap: '5px',
   },
   actionBtn: {
-    padding: '6px 10px',
-    borderRadius: '4px',
+    padding: '8px 14px',
+    borderRadius: '8px',
     border: 'none',
     cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: '13px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    lineHeight: 1,
+    minHeight: 36,
+    margin: 0,
   },
   editBtn: {
     backgroundColor: '#ffc107',
@@ -299,6 +306,7 @@ export const styles = {
     backgroundColor: '#dc3545',
     color: 'white',
   },
+  
   logoutBtn: {
     background: 'linear-gradient(135deg, #e94560 0%, #ff6b6b 100%)',
     color: 'white',

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Search, ArrowUp, ArrowDown } from 'lucide-react';
 import { styles } from '../styles/adminStyles';
 import Modal from './Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -22,9 +22,21 @@ const emptyForm = {
   reviews_count: ''
 };
 
+const localStyles = {
+  priceTop: { fontWeight: 700, fontSize: 15 },
+  priceBottom: { marginTop: 6, fontSize: 12, color: '#6b7280' },
+  deltaBadge: { display: 'inline-block', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600 },
+  deltaPos: { background: '#fee2e2', color: '#b91c1c' },
+  deltaNeg: { background: '#ecfdf5', color: '#065f46' },
+  actionGroup: { display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' },
+  // full height variant to ensure vertical centering inside table cell
+  actionGroupFull: { display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', height: '100%' },
+  smallMuted: { fontSize: 12, color: '#6b7280' }
+};
 const ProductsView = () => {
   const { getAuthHeader } = useAuth();
   const [rows, setRows] = useState([]);
+  const [scrapedMap, setScrapedMap] = useState({});
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,10 +51,30 @@ const ProductsView = () => {
       const headers = {};
       const apiKey = typeof import.meta !== 'undefined' ? import.meta.env.VITE_API_KEY : null;
       if (apiKey) headers['x-api-key'] = apiKey;
-      const res = await fetch(`${API_BASE}/compare`, { headers });
-      if (!res.ok) throw new Error('Failed to load products');
-      const data = await res.json();
-      setRows(Array.isArray(data) ? data : []);
+      // Fetch admin products (inventory) and compare (scraped) data in parallel
+      const [prodRes, compareRes] = await Promise.all([
+        fetch(`${API_BASE}/products`, { headers }),
+        fetch(`${API_BASE}/compare`, { headers })
+      ]);
+      if (!prodRes.ok) throw new Error('Failed to load products');
+      if (!compareRes.ok) throw new Error('Failed to load compare/scraped data');
+      const prodData = await prodRes.json();
+      const compareData = await compareRes.json();
+      setRows(Array.isArray(prodData) ? prodData : []);
+      const map = {};
+      (Array.isArray(compareData) ? compareData : []).forEach((c) => {
+        if (c && c.asin) {
+          map[c.asin] = c.scraped || {
+            price: c.price,
+            original_price: c.original_price,
+            discount_percent: c.discount_percent,
+            rating: c.rating,
+            reviews_count: c.reviews_count,
+            scraped_at: c.scraped_at
+          };
+        }
+      });
+      setScrapedMap(map);
     } catch (e) {
       console.error(e);
       alert('Failed to load products');
@@ -223,8 +255,8 @@ const ProductsView = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <div style={{ ...styles.searchInputContainer, flex: '1 1 280px' }}>
-          <span style={styles.searchIcon}>🔍</span>
+        <div style={{ ...styles.searchInputContainer, flex: '1 1 280px', display: 'flex', alignItems: 'center' }}>
+          <Search size={16} style={{ marginRight: 8, color: '#9ca3af' }} />
           <input type="text" placeholder="Search products..." style={styles.searchInput} value={query} onChange={(e)=>setQuery(e.target.value)} />
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
@@ -241,7 +273,7 @@ const ProductsView = () => {
               <th style={styles.tableHeaderCell}>ASIN</th>
               <th style={styles.tableHeaderCell}>Category</th>
               <th style={styles.tableHeaderCell}>Price</th>
-              <th style={styles.tableHeaderCell}>Discount%</th>
+              <th style={styles.tableHeaderCell}>Δ</th>
               <th style={styles.tableHeaderCell}>Rating</th>
               <th style={styles.tableHeaderCell}>Availability</th>
               <th style={styles.tableHeaderCell}>Actions</th>
@@ -269,19 +301,48 @@ const ProductsView = () => {
                   ) : '-' }
                 </td>
                 <td style={styles.tableCell}>
-                  {r.price != null ? (
-                    <div>
-                      <span style={{ fontWeight: 600 }}>₹{r.price}</span>
-                      {r.original_price ? (
-                        <span style={{ marginLeft: 8, color: '#94a3b8', textDecoration: 'line-through' }}>₹{r.original_price}</span>
-                      ) : null}
-                    </div>
-                  ) : '-'}
+                  <div>
+                    {r.price != null ? (
+                      <div style={localStyles.priceTop}>
+                        ₹{r.price}
+                        {r.original_price ? (
+                          <span style={{ marginLeft: 8, color: '#94a3b8', textDecoration: 'line-through', fontWeight: 400 }}>₹{r.original_price}</span>
+                        ) : null}
+                      </div>
+                    ) : '-'}
+                    {scrapedMap[r.asin] ? (
+                      <div style={localStyles.priceBottom}>
+                        Scraped: <b>₹{scrapedMap[r.asin].price ?? '—'}</b>
+                        {scrapedMap[r.asin].scraped_at ? (
+                          <span style={{ marginLeft: 8 }}>{new Date(scrapedMap[r.asin].scraped_at).toLocaleString()}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </td>
                 <td style={styles.tableCell}>
-                  {r.discount_percent != null ? (
-                    <span style={{ padding: '4px 8px', background: '#dcfce7', color: '#166534', borderRadius: 8 }}>{r.discount_percent}% OFF</span>
-                  ) : '-'}
+                  {/* delta badge */}
+                  {(() => {
+                    const s = scrapedMap[r.asin];
+                    const adminPrice = typeof r.price === 'number' ? r.price : (r.price ? Number(r.price) : null);
+                    const scrapedPrice = s ? (typeof s.price === 'number' ? s.price : (s.price ? Number(s.price) : null)) : null;
+                    const delta = (adminPrice != null && scrapedPrice != null) ? (adminPrice - scrapedPrice) : null;
+                    if (delta == null) return <div style={localStyles.smallMuted}>-</div>;
+                    const isPos = delta > 0;
+                    return (
+                      <div>
+                        <span style={{ ...localStyles.deltaBadge, ...(isPos ? localStyles.deltaPos : localStyles.deltaNeg), display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {delta === 0 ? '—' : (
+                            isPos ? (
+                              <><ArrowUp size={14} /><span>₹{Math.abs(delta)}</span></>
+                            ) : (
+                              <><ArrowDown size={14} /><span>₹{Math.abs(delta)}</span></>
+                            )
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td style={styles.tableCell}>
                   {r.rating != null ? (
@@ -296,11 +357,44 @@ const ProductsView = () => {
                     <span style={{ padding: '4px 8px', borderRadius: 8, color: r.availability.toLowerCase().includes('in') ? '#065f46' : '#991b1b', background: r.availability.toLowerCase().includes('in') ? '#d1fae5' : '#fee2e2' }}>{r.availability}</span>
                   ) : '-' }
                 </td>
-                <td style={styles.tableCell}>
-                  <div style={styles.actionButtons}>
-                    <button style={{ ...styles.actionBtn, ...styles.editBtn, borderRadius: 8 }} onClick={()=>openEdit(r)}>Edit</button>
-                    <button style={{ ...styles.actionBtn, ...styles.deleteBtn, borderRadius: 8 }} onClick={()=>doDelete(r.asin)}>Delete</button>
-                  </div>
+                <td style={{ ...styles.tableCell, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  {scrapedMap[r.asin] ? (
+                    (() => {
+                      const s = scrapedMap[r.asin];
+                      const scrapedPrice = typeof s.price === 'number' ? s.price : (s.price ? Number(s.price) : null);
+                      return (
+                        <>
+                          <button style={{ ...styles.actionBtn, ...styles.primaryButton }} onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!window.confirm('Apply scraped price to this product?')) return;
+                              try {
+                                setLoading(true);
+                                const headers = { 'Content-Type': 'application/json', ...getAuthHeader() };
+                                const body = { price: scrapedPrice };
+                                const res = await fetch(`${API_BASE}/products/${encodeURIComponent(r.asin)}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+                                if (!res.ok) {
+                                  const j = await res.json().catch(()=>({}));
+                                  throw new Error(j.detail || 'Failed to apply scraped price');
+                                }
+                                await fetchProducts();
+                                showToast('Applied scraped price', 'success');
+                              } catch (err) {
+                                showToast(err.message || 'Apply failed', 'error');
+                              } finally {
+                                setLoading(false);
+                              }
+                            }}>Apply</button>
+                          <button style={{ ...styles.actionBtn }} onClick={() => openEdit(r)}>Edit</button>
+                          <button style={{ ...styles.actionBtn, ...styles.deleteBtn }} onClick={()=>doDelete(r.asin)}>Delete</button>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <button style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={()=>openEdit(r)}>Edit</button>
+                      <button style={{ ...styles.actionBtn, ...styles.deleteBtn }} onClick={()=>doDelete(r.asin)}>Delete</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}

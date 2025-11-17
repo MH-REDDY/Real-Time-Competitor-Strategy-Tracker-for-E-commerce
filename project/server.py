@@ -120,8 +120,47 @@ def get_compare():
             # Return empty list if no database connection
             logger.warning("No database connection - returning empty product list")
             return []
-        docs = list(products_col.find().sort([('scraped_at', -1)]))
-        out = [_serialize_doc(d) for d in docs]
+        # Fetch products, but for compare (live scraped view) we prefer the latest
+        # scraped metrics from the `price_history` collection. We will return
+        # product metadata from `products` but merge in the latest scraped values
+        # from `price_history` so the compare table reflects live scraped prices.
+        price_history_col = None
+        try:
+            price_history_col = db['price_history'] if db is not None else None
+        except Exception:
+            price_history_col = None
+
+        docs = list(products_col.find())
+        out = []
+        for d in docs:
+            doc = _serialize_doc(d)
+            # Preserve any admin-modified top-level numeric fields under admin_* keys
+            for fld in ('price', 'original_price', 'discount_percent', 'rating', 'reviews_count'):
+                if fld in doc:
+                    doc[f'admin_{fld}'] = doc.get(fld)
+
+            # If we have a price_history collection, fetch the latest record for this ASIN
+            if price_history_col is not None and doc.get('asin'):
+                try:
+                    ph = price_history_col.find_one({'asin': doc['asin']}, sort=[('scraped_at', -1)])
+                    if ph:
+                        # Merge scraped values into the response (do NOT persist to products collection here)
+                        doc['price'] = ph.get('price')
+                        doc['original_price'] = ph.get('original_price')
+                        doc['discount_percent'] = ph.get('discount_percent')
+                        doc['scraped_at'] = ph.get('scraped_at')
+                        # Also provide a `scraped` namespace so UI can display both
+                        doc['scraped'] = {
+                            'price': ph.get('price'),
+                            'original_price': ph.get('original_price'),
+                            'discount_percent': ph.get('discount_percent'),
+                            'scraped_at': ph.get('scraped_at')
+                        }
+                except Exception:
+                    # Non-fatal - fall back to product-level values
+                    pass
+
+            out.append(doc)
         return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -253,8 +292,19 @@ def products_get_one(item_id: str):
 # -----------------------------
 @app.get('/api/products')
 def products_list():
-    # Alias to compare endpoint for listing
-    return get_compare()
+    """Return raw products from the `products` collection (admin-editable values).
+    This endpoint is intended for admin Inventory management and should return
+    the stored product documents without merging in live scraped metrics.
+    """
+    try:
+        if products_col is None:
+            logger.warning("No database connection - returning empty product list")
+            return []
+        docs = list(products_col.find().sort([('title', 1)]))
+        out = [_serialize_doc(d) for d in docs]
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post('/api/products')
