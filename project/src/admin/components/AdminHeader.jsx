@@ -1,4 +1,5 @@
 import { Headphones, User } from 'lucide-react';
+import AlertsBadge from './AlertsBadge';
 import { styles } from '../styles/adminStyles';
 import { useState } from 'react';
 
@@ -52,6 +53,9 @@ const AdminHeader = ({ currentView, setCurrentView, onLogout, userName }) => {
         </nav>
 
         <div style={styles.adminHeaderRight}>
+          <div style={{ marginRight: 12 }}>
+            <AlertsBadge onClick={() => setCurrentView('Alerts')} />
+          </div>
           <div style={styles.adminUserBadge}>
             <User size={18} />
             <span>{userName || 'Admin'}</span>

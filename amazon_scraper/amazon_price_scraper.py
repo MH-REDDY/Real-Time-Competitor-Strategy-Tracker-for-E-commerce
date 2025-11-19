@@ -24,6 +24,8 @@ from dotenv import load_dotenv
 
 # --- New Imports for Robustness ---
 import logging
+from decimal import Decimal
+from amazon_scraper.notify import record_and_notify
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -47,10 +49,28 @@ load_dotenv()
 # Read the variable from the environment
 mongo_uri = os.environ.get("MONGO_URI")
 
+# Defensive cleaning: users sometimes paste the URI into GitHub secrets with
+# surrounding quotes or accidental whitespace/newlines. Trim common wrappers
+# so pymongo receives a valid URI scheme.
+if mongo_uri:
+    mongo_uri = mongo_uri.strip()
+    # remove surrounding single/double quotes if present
+    if (mongo_uri.startswith('"') and mongo_uri.endswith('"')) or (mongo_uri.startswith("'") and mongo_uri.endswith("'")):
+        mongo_uri = mongo_uri[1:-1].strip()
+
+    # final trim
+    mongo_uri = mongo_uri.strip()
+
 if not mongo_uri:
     logging.error("❌ MONGO_URI not found. Make sure you have a .env file with the key.")
     # This will stop the script if the key isn't found
     raise Exception("MONGO_URI not found")
+else:
+    # Validate basic scheme quickly and provide a clearer error message
+    if not (mongo_uri.startswith('mongodb://') or mongo_uri.startswith('mongodb+srv://')):
+        logging.error("❌ MONGO_URI looks malformed. It must begin with 'mongodb://' or 'mongodb+srv://'")
+        logging.debug(f"MONGO_URI (masked start): {mongo_uri[:12]}...")
+        raise Exception("MONGO_URI malformed - must begin with 'mongodb://' or 'mongodb+srv://' (check for surrounding quotes)")
 
 try:
     client = MongoClient(mongo_uri)
@@ -77,6 +97,63 @@ except Exception as e:
     logging.exception(f"❌ MongoDB Connection Error: {e}")
     print("Please check your MONGO_URI in the .env file, username, password, and IP whitelist.")
     exit()
+
+
+# -------------------
+# Alert settings loader & helpers
+# -------------------
+def load_alert_settings_from_db():
+    """Load global alert settings from the `alert_settings` collection.
+    Returns a dict with defaults if not found or on error.
+    """
+    try:
+        settings_col = db.get_collection('alert_settings')
+        doc = settings_col.find_one({'_id': 'global'})
+        if not doc:
+            return {
+                'enabled': True,
+                'notify_channels': {'slack': True, 'email': False},
+                'threshold_percent': 20.0,
+                'threshold_absolute': 500.0,
+                'min_price_for_alert': 100.0,
+                'quiet_hours': None
+            }
+        # remove internal _id if present
+        if '_id' in doc:
+            del doc['_id']
+        return doc
+    except Exception:
+        logging.exception('Failed to load alert settings from DB; using defaults')
+        return {
+            'enabled': True,
+            'notify_channels': {'slack': True, 'email': False},
+            'threshold_percent': 20.0,
+            'threshold_absolute': 500.0,
+            'min_price_for_alert': 100.0,
+            'quiet_hours': None
+        }
+
+
+def _in_quiet_hours(quiet_hours):
+    """Checks whether current local time falls within quiet_hours.
+    quiet_hours should be dict like {'start':'22:00', 'end':'07:00'} or None.
+    Handles ranges that span midnight.
+    """
+    if not quiet_hours:
+        return False
+    try:
+        now = datetime.now()
+        start = datetime.strptime(quiet_hours.get('start', '22:00'), '%H:%M').time()
+        end = datetime.strptime(quiet_hours.get('end', '07:00'), '%H:%M').time()
+        now_t = now.time()
+        if start <= end:
+            return start <= now_t <= end
+        else:
+            # spans midnight
+            return now_t >= start or now_t <= end
+    except Exception:
+        logging.exception('Invalid quiet_hours format')
+        return False
 
 # -------------------
 # Scraping Constants
@@ -272,6 +349,14 @@ def main():
 
     logging.info(f"🚀 Starting concurrent scraper for {len(product_links)} products...")
 
+    # Load alert settings from DB (global settings document)
+    alert_settings = load_alert_settings_from_db()
+    threshold_percent = float(alert_settings.get('threshold_percent', 20.0))
+    threshold_absolute = float(alert_settings.get('threshold_absolute', 500.0))
+    min_price_for_alert = float(alert_settings.get('min_price_for_alert', 100.0))
+    quiet_hours = alert_settings.get('quiet_hours')
+    alerts_enabled = bool(alert_settings.get('enabled', True))
+
     price_history_to_insert = []
     products_scraped_count = 0
     total = len(product_links)
@@ -291,6 +376,90 @@ def main():
 
                     asin = product_data["asin"]
                     existing = products_col.find_one({"asin": asin})
+
+                    # --- Alert checks (percent + absolute + availability) ---
+                    old_price = None
+                    old_availability = None
+                    if existing:
+                        # Prefer the admin/inventory price stored at the top-level `price` field
+                        # (this represents the price set for the user's side of the website).
+                        # Fall back to the scraper's last known price when admin price is not set.
+                        admin_price = existing.get('price')
+                        scraper_last = existing.get('scraper', {}).get('last', {})
+                        # Use admin price when it exists (including 0 if intentionally set),
+                        # otherwise use the last scraped price if available.
+                        if admin_price is not None:
+                            old_price = admin_price
+                        else:
+                            old_price = scraper_last.get('price') or existing.get('price')
+
+                        # Similarly, prefer admin-provided availability, else fallback to scraper
+                        old_availability = existing.get('availability') or scraper_last.get('availability')
+
+                    new_price = product_data.get('price')
+                    new_availability = product_data.get('availability')
+
+                    # compute percent change if possible
+                    try:
+                        if old_price and new_price:
+                            pct = (float(old_price) - float(new_price)) / float(old_price) * 100.0
+                        else:
+                            pct = None
+                    except Exception:
+                        pct = None
+
+                    try:
+                        if not alerts_enabled:
+                            pass
+                        else:
+                            in_quiet = _in_quiet_hours(quiet_hours)
+                            triggered = False
+                            trigger_reason = None
+
+                            # percent threshold
+                            if pct is not None and abs(pct) >= threshold_percent:
+                                triggered = True
+                                trigger_reason = 'percent'
+
+                            # absolute threshold (guard with min price)
+                            if (not triggered) and old_price is not None and new_price is not None:
+                                try:
+                                    abs_diff = abs(float(old_price) - float(new_price))
+                                    max_price = max(float(old_price), float(new_price))
+                                    if abs_diff >= threshold_absolute and max_price >= min_price_for_alert:
+                                        triggered = True
+                                        trigger_reason = 'absolute'
+                                except Exception:
+                                    pass
+
+                            # availability change always triggers (unless alerts disabled)
+                            if (not triggered) and old_availability and new_availability and old_availability != new_availability:
+                                triggered = True
+                                trigger_reason = 'availability'
+
+                            if triggered:
+                                # Use clearer field names: `current_price` (admin/inventory) and
+                                # `scraped_price` (the newly scraped value). Keep percent/absolute
+                                # fields the same for backward compatibility in displays.
+                                alert = {
+                                    "asin": asin,
+                                    "title": product_data.get('title'),
+                                    "current_price": old_price,
+                                    "scraped_price": new_price,
+                                    "percent_change": pct or 0.0,
+                                    "absolute_change": (abs(float(old_price) - float(new_price)) if (old_price is not None and new_price is not None) else None),
+                                    "url": product_data.get('url'),
+                                    "run_id": None,
+                                    "source": "scheduled",
+                                    "trigger_reason": trigger_reason
+                                }
+                                # For this small project we always record and notify when triggered.
+                                try:
+                                    record_and_notify(alert)
+                                except Exception:
+                                    logging.exception('Failed to record and notify alert')
+                    except Exception:
+                        logging.exception('Alert check failed')
 
                     if existing:
                         # Build a set document for metadata/identifiers only and write scraped numeric values

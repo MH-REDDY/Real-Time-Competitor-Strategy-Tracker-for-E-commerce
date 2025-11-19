@@ -76,3 +76,98 @@ Frontend (Vite React in project folder)
 Notes
 - Vite proxy is configured to hit backend http://localhost:8000
 - Payments endpoints are under /api (create-order, verify-payment)
+
+------------------------------------------------------------------------
+
+Project quick-run & change-log
+================================
+
+Summary of recent, important changes (19-11-2025)
+- Scraper now compares against the admin inventory `price` (not a scraped "old" price). Alerts created by the scraper use the fields `current_price` (inventory) and `scraped_price` (live scrape).
+- The notifier (`amazon_scraper/notify.py`) always attempts to send Slack messages when an alert is recorded. Dedup/quiet-hour suppression was removed for simpler behavior during testing and initial rollout.
+- `project/server.py` was patched to ensure the repository root is on `sys.path` so the `amazon_scraper` package imports correctly when the server runs from `project`.
+- Frontend admin: `project/src/admin/components/AlertsBadge.jsx` and `AlertsList.jsx` were updated — cleaner bell UI, formatted Current/Scraped columns, stacked action buttons, and an editable "Alert Rules & Delivery" panel.
+
+Required environment variables (minimum)
+- `MONGO_URI` : MongoDB connection string (used by scraper & notifier)
+- `SLACK_WEBHOOK` : Incoming Slack Webhook URL for alert delivery
+
+Optional / UI-managed settings
+- Alert thresholds (absolute or percent) can be adjusted in the admin UI "Alert Rules & Delivery" panel. The default threshold used in initial testing was 500 (absolute currency units).
+
+Developer setup & run commands (Windows PowerShell)
+
+1) Project backend (API used by the frontend)
+ - CWD: `project`
+ - Create & activate venv (one-time):
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+ - Run server (development):
+   ```powershell
+   .venv\Scripts\python.exe -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+2) Frontend (Vite + React)
+ - CWD: `project`
+ - Install & run dev server:
+   ```powershell
+   npm install
+   npm run dev -- --port 5174
+   ```
+
+3) Alternate backend (legacy `Backend` folder)
+ - CWD: `Backend`
+ - Create venv, install requirements, run:
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   .venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+   ```
+
+4) ML services
+ - Chatbot (LLM): CWD `ML model\LLM` — `python chatbot_api.py` (follow that folder's README for environment & deps)
+ - XGBoost forecast model: CWD `ML model\xgboost_forecast_model` — run `run_api_server.py` per that folder's README
+
+Quick tests for alerts & Slack (PowerShell examples)
+- Trigger the test notify endpoint (creates a test alert and attempts Slack):
+  ```powershell
+  Invoke-RestMethod -Method Post http://localhost:8000/admin/alerts/test-notify | ConvertTo-Json -Depth 5
+  ```
+- Create the DB alert (test) without notifying (older test endpoint still available):
+  ```powershell
+  Invoke-RestMethod -Method Post http://localhost:8000/admin/alerts/test | ConvertTo-Json -Depth 5
+  ```
+- List recent alerts (inspect `notified_channels`):
+  ```powershell
+  Invoke-RestMethod -Method Get "http://localhost:8000/admin/alerts?limit=100" | ConvertTo-Json -Depth 5
+  ```
+- Manual Slack webhook test (PowerShell):
+  ```powershell
+  $webhook = 'https://hooks.slack.com/services/XXXXXXXXX'
+  $payload = '{"text":"Automated test: Slack webhook working from text.txt"}'
+  Invoke-RestMethod -Uri $webhook -Method Post -Body $payload -ContentType 'application/json'
+  ```
+
+Where to look (key files changed)
+- `amazon_scraper/amazon_price_scraper.py` — scraper logic and alert creation (now emits `current_price`/`scraped_price`).
+- `amazon_scraper/notify.py` — resilient notifier; records alerts to DB (when available) and posts Slack messages; logs HTTP responses.
+- `project/server.py` — added repo root to `sys.path` and wired test endpoints that call the notifier.
+- `project/src/admin/components/AlertsBadge.jsx` and `project/src/admin/components/AlertsList.jsx` — admin UI changes (bell, list, settings panel, test notify button).
+
+Notes & tips
+- After changing environment variables (.env or PowerShell `$env:`), restart the uvicorn process so the server picks them up.
+- If Slack messages do not appear, check server logs — the notifier logs the Slack HTTP response status and response body.
+- If you run the frontend and backend on different machines, update the Vite proxy or `VITE_` env variables to point to the correct backend host.
+
+If you'd like, I can also:
+- Extract the Alert Rules UI into a reusable component for other admin pages (small refactor).
+- Add an audit trail for changes to alert rules (either embedded history in the `alert_settings` document or a dedicated `alert_settings_changes` collection).
+
+---
+Edited by assistant: summary + run instructions added for teammates. If you'd like a shorter README.md instead, I can convert this into `project/README.md` and link to the ML folders' READMEs.
+
+------------------------------------------------------------------------

@@ -7,6 +7,8 @@ import PriceForecastView from './components/PriceForecastView';
 import ProductsView from './components/ProductsView';
 import CompareView from './components/CompareView';
 import PlaceholderView from './components/PlaceholderView';
+import AlertSettings from './components/AlertSettings';
+import AlertsList from './components/AlertsList';
 import OrdersView from './components/OrdersView';
 import UsersView from './components/UsersView';
 import FloatingBotButton from './components/FloatingBotButton';
@@ -52,7 +54,9 @@ const AdminDashboard = ({ onLogout, userName }) => {
       case 'Users':
         return <UsersView />;
       case 'Settings':
-        return <PlaceholderView title="Settings" subtitle="System settings placeholder." />;
+        return <AlertSettings />;
+      case 'Alerts':
+        return <AlertsList />;
       default:
         return (
           <PlaceholderView

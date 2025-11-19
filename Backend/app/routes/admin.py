@@ -125,6 +125,44 @@ async def get_admin_stats(current_admin: TokenData = Depends(get_current_admin))
     }
 
 
+@router.get("/alerts")
+async def list_alerts(limit: int = 20, current_admin: TokenData = Depends(get_current_admin)):
+    """List recent alerts (Admin only)"""
+    from app.config.database import get_database
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database not available")
+    alerts_col = db.get_collection('alerts')
+    docs = list(alerts_col.find().sort('triggered_at', -1).limit(int(limit)))
+    # Convert ObjectId to str and datetime to iso
+    for d in docs:
+        d['_id'] = str(d['_id'])
+        if 'triggered_at' in d:
+            try:
+                d['triggered_at'] = d['triggered_at'].isoformat()
+            except Exception:
+                pass
+    return docs
+
+
+@router.patch("/alerts/{alert_id}/ack")
+async def ack_alert(alert_id: str, current_admin: TokenData = Depends(get_current_admin)):
+    """Acknowledge an alert (Admin only)"""
+    from app.config.database import get_database
+    from bson import ObjectId
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database not available")
+    alerts_col = db.get_collection('alerts')
+    try:
+        res = alerts_col.update_one({"_id": ObjectId(alert_id)}, {"$set": {"status": "acknowledged"}})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid alert id")
+    if res.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    return {"ok": True}
+
+
 @router.post("/scrape")
 async def trigger_scrape(background_tasks: BackgroundTasks, current_admin: TokenData = Depends(get_current_admin)):
     """
@@ -159,3 +197,45 @@ async def trigger_scrape(background_tasks: BackgroundTasks, current_admin: Token
 
     background_tasks.add_task(_run)
     return {"message": "Scraper started in background"}
+
+
+@router.get("/alerts/settings")
+async def get_alert_settings(current_admin: TokenData = Depends(get_current_admin)):
+    """Get global alert settings (Admin only)"""
+    from app.config.database import get_database
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database not available")
+    settings_col = db.get_collection('alert_settings')
+    doc = settings_col.find_one({'_id': 'global'})
+    if not doc:
+        # return sensible defaults
+        return {
+            'enabled': True,
+            'notify_channels': {'slack': True, 'email': False},
+            'threshold_percent': 20.0,
+            'threshold_absolute': 500.0,
+            'min_price_for_alert': 100.0,
+            'quiet_hours': None
+        }
+    # remove internal _id if present
+    if '_id' in doc:
+        del doc['_id']
+    return doc
+
+
+@router.put("/alerts/settings")
+async def update_alert_settings(payload: dict, current_admin: TokenData = Depends(get_current_admin)):
+    """Update global alert settings (Admin only). Accepts a JSON body with settings."""
+    from app.config.database import get_database
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database not available")
+    settings_col = db.get_collection('alert_settings')
+    # Upsert the global settings document
+    try:
+        settings_col.update_one({'_id': 'global'}, {'$set': payload}, upsert=True)
+    except Exception:
+        logging.exception('Failed to update alert settings')
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Failed to update settings')
+    return {'ok': True, 'updated': payload}

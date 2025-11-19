@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# Ensure repository root (parent of `project`) is on sys.path so sibling
+# packages like `amazon_scraper` can be imported when the server is started
+# from inside the `project` folder (common dev setup).
+try:
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+        logger.info(f"Added repo root to sys.path: {repo_root}")
+except Exception:
+    # Non-fatal; import errors will be caught where they occur.
+    pass
+
 # Import payment routes
 try:
     from payments.payment_routes import router as payment_router
@@ -558,6 +570,312 @@ def admin_orders_list():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# -----------------------------
+# Admin Alerts Endpoints
+# -----------------------------
+@app.get('/admin/alerts')
+def list_alerts(limit: int = 50):
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        alerts_col = db.get_collection('alerts')
+        docs = list(alerts_col.find().sort('triggered_at', -1).limit(int(limit)))
+        out = []
+        for d in docs:
+            d2 = {}
+            for k, v in d.items():
+                if isinstance(v, ObjectId):
+                    d2[k] = str(v)
+                else:
+                    try:
+                        if hasattr(v, 'isoformat'):
+                            d2[k] = v.isoformat()
+                        else:
+                            d2[k] = v
+                    except Exception:
+                        d2[k] = v
+            out.append(d2)
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch('/admin/alerts/{alert_id}/ack')
+def ack_alert(alert_id: str):
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        alerts_col = db.get_collection('alerts')
+        try:
+            res = alerts_col.update_one({'_id': ObjectId(alert_id)}, {'$set': {'status': 'acknowledged'}})
+        except Exception:
+            raise HTTPException(status_code=400, detail='Invalid alert id')
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail='Alert not found')
+        return {'ok': True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/admin/alerts/settings')
+def get_alert_settings():
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        settings_col = db.get_collection('alert_settings')
+        doc = settings_col.find_one({'_id': 'global'})
+        if not doc:
+            return {
+                'enabled': True,
+                'notify_channels': {'slack': True, 'email': False},
+                'threshold_percent': 20.0,
+                'threshold_absolute': 500.0,
+                'min_price_for_alert': 100.0,
+                'quiet_hours': None
+            }
+        if '_id' in doc:
+            del doc['_id']
+        return doc
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _in_quiet_hours(quiet_hours):
+    """Checks whether current local time falls within quiet_hours.
+    quiet_hours should be dict like {'start':'22:00', 'end':'07:00'} or None.
+    Handles ranges that span midnight.
+    """
+    if not quiet_hours:
+        return False
+    try:
+        now = datetime.now()
+        start = datetime.strptime(quiet_hours.get('start', '22:00'), '%H:%M').time()
+        end = datetime.strptime(quiet_hours.get('end', '07:00'), '%H:%M').time()
+        now_t = now.time()
+        if start <= end:
+            return start <= now_t <= end
+        else:
+            return now_t >= start or now_t <= end
+    except Exception:
+        return False
+
+
+@app.get('/admin/alerts/diagnose')
+def diagnose_alerts(limit: int = 200):
+    """Return diagnostic info for products whether they would trigger alerts now.
+    This does a compare-only check (no scraping) and explains why alerts would
+    or would not be sent (thresholds, min_price, quiet hours, dedupe).
+    """
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        settings_col = db.get_collection('alert_settings')
+        doc = settings_col.find_one({'_id': 'global'}) or {}
+        threshold_percent = float(doc.get('threshold_percent', 20.0))
+        threshold_absolute = float(doc.get('threshold_absolute', 500.0))
+        min_price_for_alert = float(doc.get('min_price_for_alert', 100.0))
+        quiet_hours = doc.get('quiet_hours')
+        alerts_enabled = bool(doc.get('enabled', True))
+
+        alerts_col = db.get_collection('alerts')
+        price_history_col = db.get_collection('price_history')
+
+        now = datetime.now(timezone.utc)
+        dedupe_hours = int(os.environ.get('ALERT_DEDUPE_HOURS', '12'))
+        cutoff = now - timedelta(hours=dedupe_hours)
+
+        out = []
+        docs = list(products_col.find().limit(int(limit)))
+        for p in docs:
+            asin = p.get('asin')
+            admin_price = p.get('price')
+            # latest scraped price
+            ph = price_history_col.find_one({'asin': asin}, sort=[('scraped_at', -1)])
+            scraped_price = ph.get('price') if ph else None
+
+            # use admin price as the reference when available
+            ref_price = admin_price if admin_price is not None else (p.get('scraper', {}).get('last', {}).get('price'))
+
+            pct = None
+            abs_diff = None
+            trigger_percent = False
+            trigger_absolute = False
+            reason = []
+
+            if ref_price is not None and scraped_price is not None and ref_price != 0:
+                try:
+                    pct = (float(ref_price) - float(scraped_price)) / float(ref_price) * 100.0
+                except Exception:
+                    pct = None
+
+            if ref_price is not None and scraped_price is not None:
+                try:
+                    abs_diff = abs(float(ref_price) - float(scraped_price))
+                except Exception:
+                    abs_diff = None
+
+            if pct is not None and abs(pct) >= threshold_percent:
+                trigger_percent = True
+                reason.append('percent')
+
+            if abs_diff is not None:
+                try:
+                    max_price = max(float(ref_price), float(scraped_price))
+                    if abs_diff >= threshold_absolute and max_price >= min_price_for_alert:
+                        trigger_absolute = True
+                        reason.append('absolute')
+                except Exception:
+                    pass
+
+            # availability difference
+            admin_avail = p.get('availability')
+            scraped_avail = (p.get('scraper', {}).get('last', {}).get('availability')) if p.get('scraper') else None
+            avail_trigger = False
+            if admin_avail and scraped_avail and admin_avail != scraped_avail:
+                avail_trigger = True
+                reason.append('availability')
+
+            # For this simplified project we do not dedupe or respect quiet-hours
+            deduped = False
+            in_quiet = False
+            will_trigger = alerts_enabled and (trigger_percent or trigger_absolute or avail_trigger)
+
+            out.append({
+                'asin': asin,
+                'title': p.get('title'),
+                'admin_price': admin_price,
+                'scraped_price': scraped_price,
+                'pct_change': pct,
+                'abs_change': abs_diff,
+                'trigger_percent': trigger_percent,
+                'trigger_absolute': trigger_absolute,
+                'availability_trigger': avail_trigger,
+                'in_quiet_hours': in_quiet,
+                'deduped_recent_alert': deduped,
+                'would_notify_now': bool(will_trigger),
+                'reasons': reason,
+            })
+
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/admin/alerts/settings')
+def update_alert_settings(payload: dict):
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        # Coerce numeric fields to proper numeric types to avoid displaying
+        # values with leading zeros or as strings in the UI.
+        settings_col = db.get_collection('alert_settings')
+        sanitized = dict(payload or {})
+        # numeric fields we expect
+        for key in ('threshold_percent', 'threshold_absolute', 'min_price_for_alert'):
+            if key in sanitized:
+                try:
+                    # Convert empty strings or nulls to None
+                    val = sanitized.get(key)
+                    if val == '' or val is None:
+                        sanitized[key] = None
+                    else:
+                        # use float to strip leading zeros and normalize
+                        sanitized[key] = float(val)
+                except Exception:
+                    # If conversion fails, remove the key to avoid corrupt data
+                    sanitized.pop(key, None)
+
+        # ensure notify_channels structure exists
+        nc = sanitized.get('notify_channels') or {}
+        sanitized['notify_channels'] = {
+            'slack': bool(nc.get('slack', False)),
+            'email': bool(nc.get('email', False))
+        }
+
+        settings_col.update_one({'_id': 'global'}, {'$set': sanitized}, upsert=True)
+        return {'ok': True, 'updated': sanitized}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/admin/alerts/test')
+def create_test_alert():
+    if db is None:
+        raise HTTPException(status_code=500, detail='Database not available')
+    try:
+        alerts_col = db.get_collection('alerts')
+        now = datetime.now(timezone.utc)
+        doc = {
+            'asin': 'TEST-ASIN-UI',
+            'title': 'Test Alert — UI',
+            'current_price': 1999,
+            'scraped_price': 1499,
+            'percent_change': 25.0,
+            'absolute_change': 500,
+            'trigger_reason': 'test',
+            'triggered_at': now,
+            'status': 'open',
+            'created_at': now
+        }
+        res = alerts_col.insert_one(doc)
+
+        # Also attempt to notify via notifier when available so this test route
+        # behaves like the other notify endpoint.
+        notified = False
+        try:
+            try:
+                from amazon_scraper import notify as notifier
+            except Exception:
+                notifier = None
+            if notifier is not None:
+                try:
+                    notified = bool(notifier.record_and_notify(doc))
+                except Exception:
+                    notified = False
+        except Exception:
+            notified = False
+
+        return {'ok': True, 'inserted_id': str(res.inserted_id), 'notified': notified}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/admin/alerts/test-notify')
+def create_and_notify_test_alert():
+    """Create a test alert and attempt to notify via the project's notifier.
+    This is useful to verify Slack/email notifier configuration from the dev server.
+    """
+    try:
+        # Create sample alert
+        now = datetime.now(timezone.utc)
+        alert = {
+            'asin': 'TEST-ASIN-NOTIFY',
+            'title': 'Test Alert — Notify',
+            'current_price': 2999,
+            'scraped_price': 2499,
+            'percent_change': 16.7,
+            'absolute_change': 500,
+            'trigger_reason': 'test-notify',
+            'triggered_at': now,
+            'status': 'open',
+            'created_at': now
+        }
+        # Import notifier from amazon_scraper (works when repo root is on sys.path)
+        try:
+            from amazon_scraper import notify as notifier
+        except Exception as ie:
+            raise HTTPException(status_code=500, detail=f'Failed to import notifier: {ie}')
+
+        ok = notifier.record_and_notify(alert)
+        return {'ok': True, 'notified': bool(ok)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _require_api_key(request: Request):
     """Validate API key if configured. Raises HTTPException(401) when invalid."""
     if not API_KEY:
@@ -573,10 +891,26 @@ def _load_scraper_module():
     if not script_path.exists():
         raise FileNotFoundError(f"Scraper not found at {script_path}")
 
-    spec = importlib.util.spec_from_file_location('amazon_price_scraper', str(script_path))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Ensure repository root is on sys.path while importing the scraper so
+    # relative package imports like `from amazon_scraper.notify import ...`
+    # resolve correctly when the server is started from the `project` folder.
+    repo_root = str(workspace_root)
+    inserted = False
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+        inserted = True
+
+    try:
+        spec = importlib.util.spec_from_file_location('amazon_price_scraper', str(script_path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(repo_root)
+            except ValueError:
+                pass
 
 
 def _run_scraper_job(job_id: str):
