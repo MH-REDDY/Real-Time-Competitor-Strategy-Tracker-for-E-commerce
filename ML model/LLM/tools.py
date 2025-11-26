@@ -354,14 +354,14 @@ async def trigger_scraper(product_query: str = None) -> Dict:
 # Tool 6: Get Pricing Recommendation
 def get_pricing_recommendation(asin: str = None, brand: str = None) -> Dict:
     """
-    Analyze competitor prices and provide pricing recommendations
+    Comprehensive 60-day market analysis with 5-factor pricing recommendation
     
     Args:
         asin: Product ASIN
         brand: Brand name
     
     Returns:
-        Pricing recommendation
+        Detailed pricing recommendation with market analysis
     """
     try:
         # Find product
@@ -375,62 +375,177 @@ def get_pricing_recommendation(asin: str = None, brand: str = None) -> Dict:
         
         # Get product details
         product = products_collection.find_one({'asin': asin}, {'_id': 0})
+        if not product:
+            return {"error": "Product not found in database"}
+            
         current_price = product.get('price', 0)
         rating = product.get('rating', 0)
+        reviews_count = product.get('reviews_count', 0)
         title = product.get('title', '')
         
-        # Get latest competitor price
-        latest_price = price_history_collection.find_one(
-            {'asin': asin},
-            sort=[('scraped_at', -1)]
-        )
-        competitor_price = latest_price.get('price', current_price) if latest_price else current_price
+        # Get 60-day price history for comprehensive analysis
+        sixty_days_ago = datetime.utcnow() - timedelta(days=60)
+        price_history = list(price_history_collection.find(
+            {'asin': asin, 'scraped_at': {'$gte': sixty_days_ago}},
+            {'_id': 0, 'price': 1, 'scraped_at': 1}
+        ).sort('scraped_at', 1))
         
-        # Get price trends
-        trends = get_price_trends(asin=asin, days=30)
+        if not price_history:
+            return {"error": "No price history available for analysis"}
         
-        # Recommendation logic
-        recommendation = {
+        # Extract prices
+        prices = [p['price'] for p in price_history]
+        data_points = len(prices)
+        
+        # Market analysis metrics
+        latest_price = prices[-1]
+        min_price = min(prices)
+        max_price = max(prices)
+        avg_price = sum(prices) / len(prices)
+        median_price = sorted(prices)[len(prices) // 2]
+        
+        # Calculate volatility (standard deviation / mean)
+        variance = sum((p - avg_price) ** 2 for p in prices) / len(prices)
+        std_dev = variance ** 0.5
+        volatility = (std_dev / avg_price * 100) if avg_price > 0 else 0
+        
+        # Trend analysis
+        recent_prices = prices[-10:]  # Last 10 data points
+        older_prices = prices[:10] if len(prices) >= 20 else prices[:len(prices)//2]
+        recent_avg = sum(recent_prices) / len(recent_prices)
+        older_avg = sum(older_prices) / len(older_prices)
+        
+        if recent_avg < older_avg * 0.98:
+            trend = "decreasing"
+        elif recent_avg > older_avg * 1.02:
+            trend = "increasing"
+        else:
+            trend = "stable"
+        
+        # Volatility classification
+        if volatility < 3:
+            volatility_label = "high stability"
+        elif volatility < 5:
+            volatility_label = "moderate stability"
+        else:
+            volatility_label = "high volatility"
+        
+        # 5-FACTOR PRICING CALCULATION
+        # Factor 1: Rating multiplier (higher rating = higher price power)
+        if rating >= 4.5:
+            rating_multiplier = 1.10
+            rating_label = "excellent"
+        elif rating >= 4.0:
+            rating_multiplier = 1.08
+            rating_label = "great"
+        elif rating >= 3.5:
+            rating_multiplier = 1.05
+            rating_label = "good"
+        elif rating >= 3.0:
+            rating_multiplier = 1.02
+            rating_label = "average"
+        else:
+            rating_multiplier = 0.98
+            rating_label = "below average"
+        
+        # Factor 2: Reviews credibility boost (more reviews = more trust)
+        if reviews_count >= 5000:
+            reviews_multiplier = 1.05
+        elif reviews_count >= 1000:
+            reviews_multiplier = 1.03
+        elif reviews_count >= 500:
+            reviews_multiplier = 1.02
+        else:
+            reviews_multiplier = 1.0
+        
+        # Factor 3: Market trend adjustment
+        if trend == "increasing":
+            trend_multiplier = 1.03
+            trend_advice = "Market is rising, capitalize on upward momentum"
+        elif trend == "decreasing":
+            trend_multiplier = 0.97
+            trend_advice = "Market is declining, adjust pricing downward to maintain competitiveness"
+        else:
+            trend_multiplier = 1.0
+            trend_advice = "Market is stable, maintain current positioning"
+        
+        # Factor 4: Volatility adjustment (stable = can price higher)
+        if volatility < 3:
+            volatility_multiplier = 1.02
+        elif volatility > 7:
+            volatility_multiplier = 0.98
+        else:
+            volatility_multiplier = 1.0
+        
+        # Factor 5: Competitive positioning (price relative to market)
+        price_position = (current_price - avg_price) / avg_price * 100 if avg_price > 0 else 0
+        if price_position > 5:
+            position_multiplier = 0.98  # Already premium, reduce slightly
+        elif price_position < -5:
+            position_multiplier = 1.03  # Currently discount, can increase
+        else:
+            position_multiplier = 1.0
+        
+        # Calculate final recommended price
+        base_price = avg_price
+        recommended_price = base_price * rating_multiplier * reviews_multiplier * trend_multiplier * volatility_multiplier * position_multiplier
+        
+        # Price change metrics
+        price_change = recommended_price - current_price
+        price_change_percent = (price_change / current_price * 100) if current_price > 0 else 0
+        
+        # Strategic recommendation
+        if rating >= 4.0 and reviews_count >= 1000:
+            strategy = "Premium Positioning"
+            strategy_reason = f"Strong market position with {rating_label} rating ({rating}★) and high credibility ({reviews_count:,} reviews) justifies premium pricing"
+        elif trend == "decreasing":
+            strategy = "Competitive Defense"
+            strategy_reason = "Market downturn requires defensive pricing to maintain market share"
+        elif volatility > 6:
+            strategy = "Cautious Adjustment"
+            strategy_reason = "High market volatility suggests conservative pricing changes"
+        else:
+            strategy = "Market Alignment"
+            strategy_reason = "Align with market average while leveraging product strengths"
+        
+        # Detailed analysis text
+        analysis = f"Market analysis indicates a need to {'increase' if price_change > 0 else 'decrease'} the price by ₹{abs(price_change):.2f} ({abs(price_change_percent):.1f}% {'increase' if price_change > 0 else 'decrease'}) to maintain competitiveness. "
+        analysis += f"The product's {rating_label} rating ({rating}) and {'high' if reviews_count >= 1000 else 'moderate'} credibility ({reviews_count:,} reviews) give it pricing power. "
+        analysis += f"However, the market trend is {trend}, so we need to adjust the price accordingly."
+        
+        return {
             "asin": asin,
             "product": title,
-            "current_price": round(current_price, 2),
-            "competitor_price": round(competitor_price, 2),
-            "rating": rating,
-            "trend": trends.get('trend', 'unknown') if not trends.get('error') else 'unknown'
+            "current_inventory_price": round(current_price, 2),
+            "recommended_optimum_price": round(recommended_price, 2),
+            "price_change": round(price_change, 2),
+            "price_change_percent": round(price_change_percent, 1),
+            "market_analysis": {
+                "analysis_period_days": 60,
+                "data_points": data_points,
+                "price_range": {
+                    "min": round(min_price, 2),
+                    "max": round(max_price, 2)
+                },
+                "average_price": round(avg_price, 2),
+                "median_price": round(median_price, 2),
+                "latest_price": round(latest_price, 2),
+                "volatility_percent": round(volatility, 2),
+                "volatility_label": volatility_label,
+                "trend": trend
+            },
+            "product_factors": {
+                "rating": rating,
+                "rating_label": rating_label,
+                "rating_multiplier": rating_multiplier,
+                "reviews_count": reviews_count,
+                "reviews_multiplier": reviews_multiplier
+            },
+            "strategy": strategy,
+            "strategy_reason": strategy_reason,
+            "detailed_analysis": analysis,
+            "trend_advice": trend_advice
         }
-        
-        # Calculate recommended price
-        if rating >= 4.0:
-            # High rating - can price slightly higher or match
-            recommended = competitor_price * 1.02  # 2% higher
-            strategy = "premium_match"
-            reason = "Your product has excellent rating (4.0+), you can maintain premium pricing"
-        elif rating >= 3.5:
-            # Good rating - match competitor
-            recommended = competitor_price
-            strategy = "competitive_match"
-            reason = "Match competitor price given similar quality"
-        else:
-            # Lower rating - price below competitor
-            recommended = competitor_price * 0.95  # 5% lower
-            strategy = "competitive_undercut"
-            reason = "Price below competitor to compensate for lower rating"
-        
-        # Adjust for trends
-        if trends.get('trend') == 'decreasing':
-            recommended = recommended * 0.97  # Further 3% discount if market is dropping
-            reason += ". Market prices are decreasing, recommend aggressive pricing."
-        elif trends.get('trend') == 'increasing':
-            recommended = recommended * 1.02  # Can price slightly higher if market rising
-            reason += ". Market prices are rising, safe to increase price."
-        
-        recommendation['recommended_price'] = round(recommended, 2)
-        recommendation['price_change_from_current'] = round(recommended - current_price, 2)
-        recommendation['price_change_percent'] = round((recommended - current_price) / current_price * 100, 2) if current_price > 0 else 0
-        recommendation['strategy'] = strategy
-        recommendation['reason'] = reason
-        
-        return recommendation
     
     except Exception as e:
         return {"error": f"Failed to generate pricing recommendation: {str(e)}"}

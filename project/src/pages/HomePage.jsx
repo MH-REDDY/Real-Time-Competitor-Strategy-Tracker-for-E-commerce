@@ -44,7 +44,7 @@ const HomePage = () => {
           <h1 className="hero-title">Welcome to Ignite</h1>
           <p className="hero-subtitle">Experience Premium Audio Like Never Before</p>
           <button className="hero-btn" onClick={() => navigate('/browse-events')}>
-            Browse Events <ArrowRight size={20} />
+            Browse Products<ArrowRight size={20} />
           </button>
         </div>
       </section>

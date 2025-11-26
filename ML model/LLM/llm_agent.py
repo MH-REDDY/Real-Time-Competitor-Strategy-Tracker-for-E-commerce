@@ -250,12 +250,15 @@ class LLMAgent:
     4. ALWAYS call get_top_rated_products() to show all products; call search_products() only if user mentions specific brand (boAt/Anker/HP/JBL/Amazon Basics)
     5. ALL prices are in Indian Rupees (₹), NEVER use $ (USD)
     6. If a tool returns no data or errors, say so honestly—don't fill in with examples
-    7. **CRITICAL**: NEVER write function calls as text (like <function>name()</function> or function_name()). The system has automatic function calling - just respond naturally and the system will call functions when needed.
-    8. **CRITICAL**: Do not output XML tags, function syntax, or code in your responses. Only provide natural language answers.
-    9. After triggering scraper with trigger_scraper(), immediately tell user to wait 5-10 seconds, then call check_scraper_status() to show the updated prices
-    10. We ONLY scrape Amazon India (no Flipkart, no other sites)
-    11. **CRITICAL**: When calling functions, ALWAYS use numeric types (integers, not strings) for numeric parameters like "days" and "limit". For example: days: 30 (correct) NOT days: "30" (wrong)
-    12. **IMPORTANT**: The system will execute functions automatically when needed - you should NEVER type out function calls in your responses.
+    7. **ABSOLUTELY CRITICAL - FUNCTION CALLING**: 
+       - NEVER write function calls as text like: <function>name()</function>, function_name(), or any XML/code syntax
+       - NEVER mention function names in your response
+       - The system uses automatic function calling via tools - you don't need to write function calls
+       - Just provide natural language responses and the system handles function execution
+    8. After triggering scraper with trigger_scraper(), immediately tell user to wait 5-10 seconds, then call check_scraper_status() to show the updated prices
+    9. We ONLY scrape Amazon India (no Flipkart, no other sites)
+    10. **CRITICAL**: When the system calls functions for you, use the returned data to formulate your natural language response
+    11. For pricing recommendations: When user asks for pricing advice/recommendation for a brand (like "JBL", "boAt"), the system will automatically call the appropriate functions - just wait for the data and format it nicely
 
 **Scraper Workflow (IMPORTANT):**
 When user requests price scraping:
@@ -280,6 +283,30 @@ When user requests price scraping:
 - 🔮 Get price forecasts
 - 🛒 Trigger real-time scraping
 - 💡 Provide pricing recommendations
+
+**CRITICAL: Pricing Recommendation Format**
+When presenting pricing recommendations from get_pricing_recommendation(), ALWAYS format the response as follows:
+
+📊 Pricing Recommendation for [Product Title]:
+
+Current Inventory Price: ₹[current_price]
+Recommended Optimum Price: ₹[recommended_price] (±[change_percent]%)
+
+📈 Market Analysis ([days] days, [data_points] data points):
+• Competitor Range: ₹[min] - ₹[max]
+• Average: ₹[avg] | Median: ₹[median]
+• Latest: ₹[latest]
+• Volatility: [volatility]% ([volatility_label])
+• Trend: [trend]
+
+⭐ Product Factors:
+• Rating: [rating] ([rating_label]) → [multiplier]x multiplier
+• Reviews: [reviews_count] reviews → [multiplier]x credibility boost
+
+💡 Detailed Analysis:
+[detailed_analysis text]
+
+Use emojis, bullet points, and clear formatting. Present the data professionally as shown in the format above.
 
 Always use available tools to fetch real data rather than making assumptions. For unrelated queries, kindly redirect users to your core capabilities."""
     
@@ -380,6 +407,19 @@ Always use available tools to fetch real data rather than making assumptions. Fo
                 elif "latest" in query_lower or "all products" in query_lower or "all product" in query_lower:
                     force_tool = {"type": "function", "function": {"name": "get_top_rated_products"}}
             
+            # Detect pricing recommendation requests
+            pricing_keywords = ["pricing recommendation", "price recommendation", "pricing advice", "recommend price", "optimum price"]
+            if any(keyword in query_lower for keyword in pricing_keywords):
+                # Check if user specified a brand or if they want highest rated
+                if "highest" in query_lower or "top rated" in query_lower or "best" in query_lower:
+                    force_tool = {"type": "function", "function": {"name": "get_top_rated_products"}}
+                elif any(brand in query_lower for brand in ["boat", "jbl", "hp", "anker", "amazon"]):
+                    # They mentioned a specific brand
+                    for brand in ["boat", "jbl", "hp", "anker", "amazon"]:
+                        if brand in query_lower:
+                            force_tool = {"type": "function", "function": {"name": "get_pricing_recommendation"}}
+                            break
+            
             # First pass: Check if function calling needed
             try:
                 response = groq_client.chat.completions.create(
@@ -407,6 +447,63 @@ Always use available tools to fetch real data rather than making assumptions. Fo
                         "I'm temporarily rate-limited by the LLM provider. Please try again later. "
                         f"Estimated wait: ~{wait_minutes} minute(s)."
                     )
+                    self.memory.add_message(session_id, "assistant", msg)
+                    yield {"response": msg, "session_id": session_id}
+                    return
+                elif "tool_use_failed" in err_text.lower() or "failed to call a function" in err_text.lower():
+                    # Model tried to output function as text instead of proper tool call
+                    # Extract function call from failed_generation and execute manually
+                    print(f"⚠️ TOOL USE FAILED - Attempting manual function parsing: {err_text}")
+                    
+                    # Try to extract function name and args from the error
+                    # Pattern: <function=function_name{args}</function>
+                    match = re.search(r"<function=([a-zA-Z0-9_]+)(\{[^}]*\})?</function>", err_text)
+                    if match:
+                        function_name = match.group(1)
+                        args_str = match.group(2) if match.group(2) else "{}"
+                        try:
+                            function_args = json.loads(args_str)
+                        except:
+                            function_args = {}
+                        
+                        print(f"📞 Manually calling function: {function_name}({function_args})")
+                        
+                        # Execute the function
+                        try:
+                            result = await self._execute_function(function_name, function_args)
+                            
+                            # Add function result to messages
+                            messages.append({
+                                "role": "assistant",
+                                "content": f"Calling {function_name}"
+                            })
+                            messages.append({
+                                "role": "user",
+                                "content": f"Function {function_name} returned: {json.dumps(result, cls=DateTimeEncoder)}"
+                            })
+                            
+                            # Generate response with function result
+                            final_response = groq_client.chat.completions.create(
+                                model=MODEL,
+                                messages=messages,
+                                temperature=TEMPERATURE,
+                                max_tokens=MAX_TOKENS,
+                                stream=stream
+                            )
+                            
+                            if stream:
+                                async for chunk in self._stream_response(final_response, session_id):
+                                    yield chunk
+                            else:
+                                final_text = final_response.choices[0].message.content
+                                self.memory.add_message(session_id, "assistant", final_text)
+                                yield {"response": final_text, "session_id": session_id}
+                            return
+                        except Exception as func_err:
+                            print(f"❌ Manual function execution failed: {func_err}")
+                    
+                    # If manual parsing failed, fall through to generic error
+                    msg = "I apologize, I encountered a technical issue. I specialize in helping with product information, pricing trends, and forecasts for wireless headphones. How can I assist you?"
                     self.memory.add_message(session_id, "assistant", msg)
                     yield {"response": msg, "session_id": session_id}
                     return

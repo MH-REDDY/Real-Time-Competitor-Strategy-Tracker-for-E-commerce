@@ -16,7 +16,7 @@ import Modal from './components/Modal';
 import { useAuth } from '../context/AuthContext';
 
 const AdminDashboard = ({ onLogout, userName }) => {
-  const [currentView, setCurrentView] = useState('Dashboard');
+  const [currentView, setCurrentView] = useState('Alerts');
   const [isQAModalOpen, setIsQAModalOpen] = useState(false);
   const [profileName, setProfileName] = useState(userName);
   const { getAuthHeader } = useAuth();

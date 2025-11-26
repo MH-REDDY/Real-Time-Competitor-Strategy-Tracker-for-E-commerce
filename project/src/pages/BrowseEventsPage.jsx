@@ -55,7 +55,7 @@ const BrowseEventsPage = () => {
   return (
     <div className="browse-events-page">
       <div className="browse-header">
-        <h1 className="browse-title">Browse Events</h1>
+        <h1 className="browse-title">Browse Products</h1>
         <p className="browse-subtitle">Discover our premium collection of audio products</p>
       </div>
 
