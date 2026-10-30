@@ -8,7 +8,7 @@ load_dotenv()
 def add_admin_user():
     try:
         # Connect to MongoDB
-        MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://teamignite:J8L7pSQ29w2mopPW@ecomtracker.sw0pckw.mongodb.net/")
+        MONGO_URI = os.getenv("MONGO_URI", "#link#")
         client = MongoClient(MONGO_URI)
         db = client['ecom_tracker']
         
